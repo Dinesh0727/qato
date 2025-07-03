@@ -108,7 +108,9 @@ export function activate(context: vscode.ExtensionContext) {
                                 '-cp',
                                 classPath,
                                 'com.intuit.karate.Main',
-                                tempFeatureFilePath
+                                tempFeatureFilePath,
+                                '--output', // Argument to specify output directory
+                                projectRootPath // Output reports to the project root
                             ], {
                                 cwd: projectRootPath
                             });
@@ -118,6 +120,24 @@ export function activate(context: vscode.ExtensionContext) {
 
                             karateProcess.on('close', code => {
                                 outputChannel.append(`\n---\n[QATO] Process exited with code ${code}`);
+                                
+                                // Read and parse Karate JSON report
+                                const karateReportPath = path.join(projectRootPath, 'target', 'karate-reports', 'karate-summary-json.txt');
+                                let testResults = {};
+                                try {
+                                    const reportContent = require('fs').readFileSync(karateReportPath, 'utf8');
+                                    testResults = JSON.parse(reportContent);
+                                } catch (reportError: any) {
+                                    console.error('Error reading or parsing Karate report:', reportError);
+                                    vscode.window.showErrorMessage(`Failed to read Karate report: ${reportError.message || reportError}`);
+                                }
+
+                                // Send results back to webview
+                                panel.webview.postMessage({
+                                    command: 'testResult',
+                                    payload: testResults
+                                });
+
                                 if (code === 0) {
                                     vscode.window.showInformationMessage('Karate test run finished successfully!');
                                 } else {

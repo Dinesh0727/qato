@@ -1,19 +1,9 @@
-import { useState } from 'react';
-import { Navigator } from '@/components/Navigator';
-import { Editor } from '@/components/Editor';
-import { Results } from '@/components/Results';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import { TestCase, ExecutionLog, ApiResponse } from '@/types';
-import { service } from '@/services/api';
-import { useToast } from '@/hooks/use-toast';
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Navigator } from '@/components/Navigator';
 import { Editor } from '@/components/Editor';
 import { Results } from '@/components/Results';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
-import { service } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 declare const vscode: any; // Declare vscode API
@@ -32,21 +22,23 @@ const generateGherkin = (testCase: TestCase): string => {
 Scenario: ${step.name}
 `;
     switch (step.type) {
-      case 'sql':
+      case 'sql': {
         const sqlConfig = step.config as SqlStepConfig;
         gherkin += `  * def result = DbUtils.readRow("${sqlConfig.query.replace(/"/g, '"')}")
 `;
         gherkin += `  * print 'SQL Result:', result
 `;
         break;
-      case 'redis':
+      }
+      case 'redis': {
         const redisConfig = step.config as RedisStepConfig;
-        gherkin += `  * def result = DbUtils.execute("${redisConfig.command.replace(/"/g, '"')}")
+        gherkin += `  * def result = DbUtils.execute("${redisConfig.command.replace(/"/g, '\"')}")
 `;
         gherkin += `  * print 'Redis Result:', result
 `;
         break;
-      case 'api':
+      }
+      case 'api': {
         const apiConfig = step.config as ApiStepConfig;
         gherkin += `  Given url '${apiConfig.url}'
 `;
@@ -65,13 +57,15 @@ Scenario: ${step.name}
         gherkin += `  Then status 200
 `; // Assuming 200 for now
         break;
-      case 'clickhouse':
+      }
+      case 'clickhouse': {
         const clickhouseConfig = step.config as ClickhouseStepConfig;
-        gherkin += `  * def result = DbUtils.readRow("${clickhouseConfig.query.replace(/"/g, '"')}")
+        gherkin += `  * def result = DbUtils.readRow("${clickhouseConfig.query.replace(/"/g, '\"')}")
 `;
         gherkin += `  * print 'Clickhouse Result:', result
 `;
         break;
+      }
     }
   });
 
@@ -85,6 +79,45 @@ const Index = () => {
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const message = event.data;
+      switch (message.command) {
+        case 'testResult':
+          // Assuming message.payload contains the parsed Karate report
+          // You'll need to map this to your ExecutionLog and ApiResponse types
+          // For now, let's just log it and show a success/failure toast
+          console.log('Received test results:', message.payload);
+          if (message.payload.features && message.payload.features.length > 0) {
+            const feature = message.payload.features[0];
+            if (feature.failedCount === 0) {
+              toast({
+                title: "Test Execution Successful",
+                description: `All scenarios passed for ${feature.name}`,
+              });
+            } else {
+              toast({
+                title: "Test Execution Failed",
+                description: `${feature.failedCount} scenario(s) failed for ${feature.name}`,
+                variant: "destructive",
+              });
+            }
+          }
+          // You would typically parse message.payload and update executionLogs and apiResponse here
+          // For example:
+          // setExecutionLogs(parseKarateLogs(message.payload));
+          // setApiResponse(parseKarateApiResponse(message.payload));
+          break;
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
 
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;

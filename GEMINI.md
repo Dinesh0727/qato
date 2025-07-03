@@ -73,3 +73,309 @@ Database and other custom logic are handled **out-of-process**. The test runner 
 
 *   **Build:** `mvn clean install` (from the `java-utils/qa-tool-orchaestrator` directory)
 *   **Run:** The extension will manage the lifecycle of this service.
+
+
+Original Phases to build this extension:
+
+### **Phase 0: The Foundation - Setup and Project Structure**
+
+**Goal:** Prepare your development environment and create the project's folder structure.
+
+1. **Install Prerequisites:**
+    - **Node.js:** To run the extension's backend and build the UI.
+    - **Visual Studio Code:** Your development environment.
+    - **Java (JDK), version 11 or higher:** To run the Karate test engine.
+    - **Maven:** A Java build tool to manage your utility code dependencies.
+    - **VS Code Extension Generator:**
+        
+        ```bash
+        npm install -g yo generator-code
+        ```
+        
+2. **Create the Project Structure:** This structure is critical for keeping your code organized.
+    - First, generate the main extension boilerplate:
+        
+        ```bash
+        yo code
+        # Choose "New Extension (TypeScript)"
+        # Name it "qato"
+        # Enable webpack bundling
+        # Use npm
+        ```
+        
+    - This creates a `qato` folder. Now, inside that `qato` folder, create the following structure:
+    
+    ```
+    qato/
+    ├── .vscode/          (VS Code config files)
+    ├── src/              <-- PHASE 1: Your Extension's TypeScript "backend" lives here
+    │   └── extension.ts
+    ├── java-utils/       <-- PHASE 1: Your custom Java database/Redis helpers live here
+    │   ├── src/main/java/com/qato/utils/
+    │   └── pom.xml
+    ├── webview-ui/       <-- PHASE 2: Your Lovable UI (React/Vue) code lives here
+    │   ├── src/
+    │   └── package.json
+    ├── resources/        <-- A place to store bundled tools like the Karate JAR
+    ├── package.json      (The manifest for your whole extension)
+    └── ... (other generated files)
+    
+    ```
+    
+
+---
+
+### **Phase 1: The Core Engine - A Command-Line Runner**
+
+**Goal:** Create a simple VS Code command that can run a hardcoded Karate test file using your Java utilities, with zero UI. This proves the entire backend toolchain works.
+
+1. **Create the Java Utilities (`java-utils/`):**
+    - In `java-utils/pom.xml`, add dependencies for JDBC drivers and Redis.
+        
+        ```xml
+        <dependencies>
+            <!-- MySQL Driver -->
+            <dependency>
+                <groupId>mysql</groupId>
+                <artifactId>mysql-connector-java</artifactId>
+                <version>8.0.33</version>
+            </dependency>
+            <!-- Jedis for Redis -->
+            <dependency>
+                <groupId>redis.clients</groupId>
+                <artifactId>jedis</artifactId>
+                <version>5.1.0</version>
+            </dependency>
+        </dependencies>
+        <properties>
+            <maven.compiler.source>11</maven.compiler.source>
+            <maven.compiler.target>11</maven.compiler.target>
+        </properties>
+        
+        ```
+        
+    - Create `java-utils/src/main/java/com/qato/utils/DbUtils.java`. **For now, we will hardcode connection details. We will make this secure in Phase 3.**
+        
+        ```java
+        package com.qato.utils;
+        import java.sql.*;
+        import java.util.Map;
+        import java.util.HashMap;
+        
+        public class DbUtils {
+            public static Map<String, Object> readRow(String query) {
+                // DO NOT DO THIS IN PRODUCTION. We will fix this in Phase 3.
+                String url = "jdbc:mysql://localhost:3306/testdb";
+                String user = "root";
+                String password = "password";
+                try (Connection conn = DriverManager.getConnection(url, user, password); /*... rest of the logic ...*/) {
+                    // ... (logic from previous examples to run query and return a Map)
+                    return new HashMap<>(); // return real data
+                } catch (Exception e) { throw new RuntimeException(e); }
+            }
+        }
+        
+        ```
+        
+    - Build this utility into a JAR file. Open a terminal in the `java-utils` folder:
+        
+        ```bash
+        mvn package
+        
+        ```
+        
+    - This will create a `target/java-utils-1.0-SNAPSHOT.jar` file.
+2. **Prepare Karate:**
+    - Download the latest **Karate Standalone JAR** from their [releases page](https://github.com/karatelabs/karate/releases).
+    - Place this JAR and your newly created `java-utils-1.0-SNAPSHOT.jar` into the `qato/resources/` folder.
+3. **Create a Sample Test (`qato/`):**
+    - Create a file named `sample.feature` in the root of your `qato` project.
+        
+        ```gherkin
+        Feature: Test the core engine
+        
+        Background:
+          * def DbUtils = Java.type('com.qato.utils.DbUtils')
+        
+        Scenario: Run a DB query and an API call
+          * def user = DbUtils.readRow("SELECT 'John Doe' as name")
+          * print 'DB User:', user
+          * match user.name == 'John Doe'
+        
+          Given url '<https://reqres.in/api/users/2>'
+          When method get
+          Then status 200
+        
+        ```
+        
+4. **Write the Extension Logic (`src/extension.ts`):**
+    - This TypeScript code will execute the Karate JAR as a command-line process.
+        
+        ```tsx
+        import * as vscode from 'vscode';
+        import * as cp from 'child_process';
+        import * as path from 'path';
+        
+        export function activate(context: vscode.ExtensionContext) {
+            let disposable = vscode.commands.registerCommand('qato.runHardcodedTest', () => {
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                if (!workspaceFolder) {
+                    vscode.window.showErrorMessage('Please open a folder to run tests.');
+                    return;
+                }
+        
+                // Get paths to our bundled resources
+                const karateJarPath = path.join(context.extensionPath, 'resources', 'karate-1.4.1.jar'); // Use your version
+                const utilsJarPath = path.join(context.extensionPath, 'resources', 'java-utils-1.0-SNAPSHOT.jar');
+                const featureFilePath = path.join(workspaceFolder.uri.fsPath, 'sample.feature');
+        
+                // The -cp flag adds our utils JAR to the classpath so Karate can find the Java code
+                const karateProcess = cp.spawn('java', [
+                    '-cp',
+                    `${karateJarPath}:${utilsJarPath}`, // Use ';' on Windows
+                    'com.intuit.karate.Main',
+                    featureFilePath
+                ]);
+        
+                // Create an output channel to show the results
+                const outputChannel = vscode.window.createOutputChannel("Karate Results");
+                outputChannel.show();
+        
+                karateProcess.stdout.on('data', data => outputChannel.append(data.toString()));
+                karateProcess.stderr.on('data', data => outputChannel.append(data.toString()));
+                karateProcess.on('close', code => outputChannel.append(`\\nProcess exited with code ${code}`));
+            });
+        
+            context.subscriptions.push(disposable);
+        }
+        
+        ```
+        
+5. **Test:** Press **F5** to start debugging. In the new VS Code window, open your `qato` project folder. Open the Command Palette (**Ctrl+Shift+P**) and run `QATO: Run Hardcoded Test`. An output panel should appear and show the Karate test results.
+
+**Congratulations!** You now have a working, albeit basic, test execution engine. This is the most complex part.
+
+---
+
+### **Phase 2: The Visual Builder - Integrating the UI**
+
+**Goal:** Load your Lovable UI into a Webview and make it generate the `sample.feature` file's content, instead of you writing it by hand.
+
+1. **Set Up the Webview:** Follow the detailed steps from our previous discussion to:
+    - Move your Lovable UI code into `webview-ui/`.
+    - Configure its build tool (Vite/Webpack) to output to a `dist-ui` folder at the project root.
+    - In `src/extension.ts`, create a `qato.showPanel` command that creates a `WebviewPanel`.
+    - Use the `getWebviewContent` function to load the `index.html` from `dist-ui`.
+2. **Establish the Communication Bridge:**
+    - **In your UI (React/Vue):** When a user clicks "Add API Step" and fills out a form, your UI code should construct the Gherkin syntax as a string (e.g., `const gherkinText = "Given url '...'"`).
+    - **UI to Extension:** Your UI will maintain the full text of the `.feature` file in its state. When the user clicks "Run Test", it will send the entire text content to the extension.
+        
+        ```jsx
+        // In your React UI's run button handler
+        vscode.postMessage({
+            command: 'runGeneratedTest',
+            payload: {
+                featureFileContent: "Feature: My Test...\\nScenario: ...\\n" // The full text
+            }
+        });
+        
+        ```
+        
+    - **Extension to UI:** Modify `src/extension.ts` to listen for this message.
+        
+        ```tsx
+        // Inside panel.webview.onDidReceiveMessage
+        case 'runGeneratedTest':
+            const content = message.payload.featureFileContent;
+        
+            // 1. Write this content to a temporary file, e.g., 'temp.feature'
+            const tempFeaturePath = path.join(workspaceFolder.uri.fsPath, 'temp.feature');
+            fs.writeFileSync(tempFeaturePath, content);
+        
+            // 2. Run the Karate command from Phase 1, but using tempFeaturePath
+            // ... spawn java process ...
+        
+            // 3. When the process finishes, send the results back to the UI
+            karateProcess.on('close', code => {
+                panel.webview.postMessage({ command: 'testResult', payload: { /* result data */ }});
+            });
+            return;
+        
+        ```
+        
+3. **Test:** Press **F5**. Run the `showPanel` command. Use your UI to build a simple test, click "Run". The extension should create a `temp.feature` file and execute it.
+
+---
+
+### **Phase 3: "Pro" Features - Secure Credential Management**
+
+**Goal:** Stop hardcoding credentials in Java. Securely get them from the user and pass them to the Java utilities at runtime.
+
+1. **UI for Credentials:** In your extension's settings (or a dedicated Webview UI), create a form for the user to define "Environments" (e.g., "Staging") and enter their DB/Redis credentials.
+2. **Store Secrets Securely:** In `src/extension.ts`, when the user saves these credentials, use VS Code's `SecretStorage` API.
+    
+    ```tsx
+    // Storing a secret
+    await context.secrets.store('staging.db.password', 'the-secret-password');
+    
+    ```
+    
+3. **The Secure Handshake (The Critical Part):**
+    - **Modify `extension.ts`:** Before running Karate, do this:
+        1. Retrieve the secrets for the selected environment from `SecretStorage`.
+        2. Create a JSON object with these secrets: `const config = { dbUrl: "...", dbUser: "..." }`.
+        3. Write this JSON object to a **temporary file** in a secure location (e.g., OS temp directory). `const tempConfigFile = path.join(os.tmpdir(), 'qato-config.json')`.
+        4. When you spawn the Java process, pass the path to this file as a system property:
+            
+            ```tsx
+            cp.spawn('java', [
+                `-Dqato.config.path=${tempConfigFile}`, // The magic property
+                '-cp',
+                // ... rest of the command
+            ]);
+            
+            ```
+            
+        5. **Crucially, in a `finally` block or after the process closes, delete the temporary config file.** `fs.unlinkSync(tempConfigFile)`.
+    - **Modify `DbUtils.java`:**
+        1. Remove the hardcoded credentials.
+        2. Read the file path from the system property.
+        3. Use a JSON parsing library (like Jackson or GSON) to read the temporary config file and get the credentials.
+            
+            ```java
+            public class DbUtils {
+                private static Map<String, String> loadConfig() {
+                    String configPath = System.getProperty("qato.config.path");
+                    // Use Jackson/Gson to parse the JSON file at configPath
+                    // and return it as a Map.
+                }
+            
+                public static Map<String, Object> readRow(String query) {
+                    Map<String, String> config = loadConfig();
+                    String url = config.get("dbUrl");
+                    // ... use config values to connect ...
+                }
+            }
+            
+            ```
+            
+
+---
+
+### **Phase 4: Commercialization - Packaging & Selling**
+
+**Goal:** Add licensing and publish your extension.
+
+1. **Add Licensing Logic:**
+    - In your `extension.ts`, create a function `isProUser()`.
+    - Have a command `qato.enterLicenseKey` that saves a key to `SecretStorage`.
+    - The `isProUser()` function will retrieve this key and validate it (for now, just check if it exists or matches a hardcoded string).
+    - In your UI-generating code, wrap your "Pro" features (e.g., the DB step generator) in an `if (isProUser()) { ... }` block. If not, show a "Upgrade to Pro" button.
+2. **Package Your Extension:**
+    - Install the VS Code packaging tool: `npm install -g vsce`.
+    - Fill out your `package.json` with publisher details, an icon, etc.
+    - Run the packager from your project root: `vsce package`.
+    - This creates a `.vsix` file, which is your installable extension.
+3. **Publish:**
+    - Create a publisher account on the [Azure DevOps portal](https://dev.azure.com/).
+    - Follow the official guide on [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension) to upload and list your `.vsix` file on the VS Code Marketplace.
