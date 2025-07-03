@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=3
+ReferrerUrl=https://github.com/karatelabs/karate/releases
+HostUrl=https://objects.githubusercontent.com/github-production-release-asset-2e65be/81226206/53356819-52b0-4d11-9a9e-71da6cc3f57a?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=releaseassetproduction%2F20250622%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250622T135154Z&X-Amz-Expires=1800&X-Amz-Signature=7e7d70297e9a99376a7fceb8a4469ee78ca14ff8c3f4ab2f5181e20bb7c10a2f&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3Dkarate-1.5.1.jar&response-content-type=application%2Foctet-stream

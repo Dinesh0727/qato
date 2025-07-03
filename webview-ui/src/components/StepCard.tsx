@@ -1,0 +1,234 @@
+import { useState } from 'react';
+import { GripVertical, Trash2, Database, Zap, Globe } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
+
+interface StepCardProps {
+  step: TestStep;
+  index: number;
+  onUpdate: (updates: Partial<TestStep>) => void;
+  onDelete: () => void;
+}
+
+export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => {
+  const getStepIcon = () => {
+    switch (step.type) {
+      case 'sql':
+        return <Database className="h-4 w-4" />;
+      case 'redis':
+        return <Zap className="h-4 w-4" />;
+      case 'api':
+        return <Globe className="h-4 w-4" />;
+      case 'clickhouse':
+        return <Database className="h-4 w-4" />;
+    }
+  };
+
+  const getStepColor = () => {
+    switch (step.type) {
+      case 'sql':
+        return 'bg-blue-600';
+      case 'redis':
+        return 'bg-red-600';
+      case 'api':
+        return 'bg-green-600';
+      case 'clickhouse':
+        return 'bg-yellow-600';
+    }
+  };
+
+  const renderStepContent = () => {
+    switch (step.type) {
+      case 'sql':
+        const sqlConfig = step.config as SqlStepConfig;
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">SQL Query</label>
+              <Textarea
+                value={sqlConfig.query}
+                onChange={(e) => onUpdate({ 
+                  config: { ...sqlConfig, query: e.target.value } 
+                })}
+                placeholder="SELECT * FROM users WHERE id = 1;"
+                className="bg-muted border-border text-foreground font-mono text-sm min-h-[100px] rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Database (optional)</label>
+              <Input
+                value={sqlConfig.database || ''}
+                onChange={(e) => onUpdate({ 
+                  config: { ...sqlConfig, database: e.target.value } 
+                })}
+                placeholder="database_name"
+                className="bg-muted border-border text-foreground rounded-lg"
+              />
+            </div>
+          </div>
+        );
+
+      case 'redis':
+        const redisConfig = step.config as RedisStepConfig;
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Redis Command</label>
+              <Input
+                value={redisConfig.command}
+                onChange={(e) => onUpdate({ 
+                  config: { ...redisConfig, command: e.target.value } 
+                })}
+                placeholder="SET key value"
+                className="bg-muted border-border text-foreground font-mono rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Database Number (optional)</label>
+              <Input
+                type="number"
+                value={redisConfig.database || ''}
+                onChange={(e) => onUpdate({ 
+                  config: { ...redisConfig, database: parseInt(e.target.value) || 0 } 
+                })}
+                placeholder="0"
+                className="bg-muted border-border text-foreground rounded-lg"
+              />
+            </div>
+          </div>
+        );
+
+      case 'api':
+        const apiConfig = step.config as ApiStepConfig;
+        return (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Select
+                value={apiConfig.method}
+                onValueChange={(value) => onUpdate({ 
+                  config: { ...apiConfig, method: value as any } 
+                })}
+              >
+                <SelectTrigger className="w-28 bg-muted border-border rounded-lg">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-muted border-border rounded-lg">
+                  <SelectItem value="GET">GET</SelectItem>
+                  <SelectItem value="POST">POST</SelectItem>
+                  <SelectItem value="PUT">PUT</SelectItem>
+                  <SelectItem value="DELETE">DELETE</SelectItem>
+                  <SelectItem value="PATCH">PATCH</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                value={apiConfig.url}
+                onChange={(e) => onUpdate({ 
+                  config: { ...apiConfig, url: e.target.value } 
+                })}
+                placeholder="https://api.example.com/endpoint"
+                className="flex-1 bg-muted border-border text-foreground rounded-lg"
+              />
+            </div>
+
+            <Tabs defaultValue="headers" className="w-full">
+              <TabsList className="bg-muted rounded-lg">
+                <TabsTrigger value="headers" className="rounded-md">Headers</TabsTrigger>
+                <TabsTrigger value="body" className="rounded-md">Body</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="headers" className="mt-3">
+                <Textarea
+                  value={JSON.stringify(apiConfig.headers, null, 2)}
+                  onChange={(e) => {
+                    try {
+                      const headers = JSON.parse(e.target.value);
+                      onUpdate({ config: { ...apiConfig, headers } });
+                    } catch (e) {
+                      // Invalid JSON, keep current value
+                    }
+                  }}
+                  placeholder='{"Content-Type": "application/json"}'
+                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[80px] rounded-lg"
+                />
+              </TabsContent>
+              
+              <TabsContent value="body" className="mt-3">
+                <Textarea
+                  value={apiConfig.body || ''}
+                  onChange={(e) => onUpdate({ 
+                    config: { ...apiConfig, body: e.target.value } 
+                  })}
+                  placeholder='{"key": "value"}'
+                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[80px] rounded-lg"
+                />
+              </TabsContent>
+            </Tabs>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <Card
+      className={`relative p-6 rounded-2xl shadow-xl border-2 transition-all duration-300
+        ${getStepColor()} border-opacity-30
+        bg-gradient-to-br from-background via-${getStepColor().replace('bg-', '')}/10 to-background
+        hover:scale-[1.02] hover:shadow-2xl
+      `}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4">
+        <Button variant="ghost" size="sm" className="cursor-grab text-muted-foreground p-1 hover:bg-accent rounded-lg transition-colors duration-200">
+          <GripVertical className="h-4 w-4" />
+        </Button>
+        
+        <Badge className={`${getStepColor()} text-white rounded-lg px-3 py-1 flex items-center gap-1 shadow-md`}> 
+          {getStepIcon()}
+          <span className="ml-1 font-semibold tracking-wide uppercase">{step.type}</span>
+        </Badge>
+        
+        <div className="flex-1">
+          <Input
+            value={step.name}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            className="bg-transparent border-none text-foreground font-semibold p-0 h-auto focus-visible:ring-0 rounded-lg text-lg"
+          />
+        </div>
+        
+        <div className={`absolute -top-4 -right-4 z-10 flex items-center justify-center w-10 h-10 rounded-full border-4 ${getStepColor()} border-white shadow-lg text-white text-lg font-bold bg-gradient-to-br from-${getStepColor().replace('bg-', '')}/80 to-${getStepColor().replace('bg-', '')}/60`}>
+          {index + 1}
+        </div>
+        
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 p-1 rounded-lg transition-all duration-200"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Delay Input */}
+      <div className="mb-4">
+        <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
+        <Input
+          type="number"
+          value={step.delayMs}
+          onChange={(e) => onUpdate({ delayMs: parseInt(e.target.value) || 0 })}
+          min="0"
+          className="w-32 bg-muted border-border text-foreground rounded-lg shadow-sm focus:ring-2 focus:ring-primary/40"
+        />
+      </div>
+
+      {/* Step Content */}
+      {renderStepContent()}
+    </Card>
+  );
+};
