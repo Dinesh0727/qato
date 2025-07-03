@@ -10,9 +10,10 @@ import { ExecutionLog, ApiResponse } from '@/types';
 interface ResultsProps {
   executionLogs: ExecutionLog[];
   apiResponse: ApiResponse | null;
+  testResults: any | null;
 }
 
-export const Results = ({ executionLogs, apiResponse }: ResultsProps) => {
+export const Results = ({ executionLogs, apiResponse, testResults }: ResultsProps) => {
   const [expandedResponse, setExpandedResponse] = useState(false);
 
   const getLevelIcon = (level: string) => {
@@ -56,6 +57,12 @@ export const Results = ({ executionLogs, apiResponse }: ResultsProps) => {
           </TabsTrigger>
           <TabsTrigger value="response" className="data-[state=active]:bg-accent">
             API Response
+          </TabsTrigger>
+          <TabsTrigger value="results" className="data-[state=active]:bg-accent">
+            Test Results
+          </TabsTrigger>
+          <TabsTrigger value="db-results" className="data-[state=active]:bg-accent">
+            DB Results
           </TabsTrigger>
         </TabsList>
 
@@ -162,6 +169,40 @@ export const Results = ({ executionLogs, apiResponse }: ResultsProps) => {
                     </pre>
                   </Card>
                 </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+        <TabsContent value="results" className="flex-1 p-0">
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              {!testResults ? (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">📊</div>
+                  <p className="text-muted-foreground">No test results yet</p>
+                  <p className="text-sm text-muted-foreground/70">Run a test to see the results</p>
+                </div>
+              ) : (
+                <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                  {JSON.stringify(testResults, null, 2)}
+                </pre>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+        <TabsContent value="db-results" className="flex-1 p-0">
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              {!testResults || !testResults.dbResults || testResults.dbResults.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">💾</div>
+                  <p className="text-muted-foreground">No DB results yet</p>
+                  <p className="text-sm text-muted-foreground/70">Run a test with a DB step to see the results</p>
+                </div>
+              ) : (
+                <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                  {JSON.stringify(testResults.dbResults, null, 2)}
+                </pre>
               )}
             </div>
           </ScrollArea>

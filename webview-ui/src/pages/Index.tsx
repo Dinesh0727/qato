@@ -32,7 +32,7 @@ Scenario: ${step.name}
       }
       case 'redis': {
         const redisConfig = step.config as RedisStepConfig;
-        gherkin += `  * def result = DbUtils.execute("${redisConfig.command.replace(/"/g, '\"')}")
+        gherkin += `  * def result = DbUtils.execute("${redisConfig.command.replace(/"/g, '"')}")
 `;
         gherkin += `  * print 'Redis Result:', result
 `;
@@ -60,7 +60,7 @@ Scenario: ${step.name}
       }
       case 'clickhouse': {
         const clickhouseConfig = step.config as ClickhouseStepConfig;
-        gherkin += `  * def result = DbUtils.readRow("${clickhouseConfig.query.replace(/"/g, '\"')}")
+        gherkin += `  * def result = DbUtils.readRow("${clickhouseConfig.query.replace(/"/g, '"')}")
 `;
         gherkin += `  * print 'Clickhouse Result:', result
 `;
@@ -77,6 +77,7 @@ const Index = () => {
   const [isNavigatorCollapsed, setIsNavigatorCollapsed] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([]);
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
+  const [testResults, setTestResults] = useState<any | null>(null); // State for results
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
 
@@ -85,6 +86,7 @@ const Index = () => {
       const message = event.data;
       switch (message.command) {
         case 'testResult':
+          setTestResults(message.payload); // Update state with results
           // Assuming message.payload contains the parsed Karate report
           // You'll need to map this to your ExecutionLog and ApiResponse types
           // For now, let's just log it and show a success/failure toast
@@ -178,6 +180,7 @@ const Index = () => {
         <Results
           executionLogs={executionLogs}
           apiResponse={apiResponse}
+          testResults={testResults} // Pass results to the component
         />
       </div>
     </div>
