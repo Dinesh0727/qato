@@ -171,6 +171,24 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
             </Tabs>
           </div>
         );
+
+      case 'clickhouse':
+        const clickhouseConfig = step.config as ClickhouseStepConfig;
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">ClickHouse Query</label>
+              <Textarea
+                value={clickhouseConfig.query}
+                onChange={(e) => onUpdate({ 
+                  config: { ...clickhouseConfig, query: e.target.value } 
+                })}
+                placeholder="SELECT * FROM my_table LIMIT 10;"
+                className="bg-muted border-border text-foreground font-mono text-sm min-h-[100px] rounded-lg"
+              />
+            </div>
+          </div>
+        );
     }
   };
 

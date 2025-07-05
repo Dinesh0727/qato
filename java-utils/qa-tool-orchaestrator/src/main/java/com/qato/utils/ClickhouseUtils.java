@@ -1,21 +1,17 @@
 package com.qato.utils;
 
 import java.sql.*;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
-public class DbUtils {
+public class ClickhouseUtils {
 
-    // IMPORTANT: These are hardcoded for now, as per the original plan for this phase.
-    // We will address secure credential management in a later step.
-    private static final String URL = "jdbc:mysql://localhost:4406/dev_apps";
-    private static final String USER = "dinesh";
-    private static final String PASSWORD = "password";
+    private static final String URL = "jdbc:clickhouse://localhost:8123/default";
+    private static final String USER = "default";
+    private static final String PASSWORD = "";
 
     public static Map<String, Object> readRow(String query) {
-        System.out.println("[DEBUG:DbUtils] Executing query: " + query);
+        System.out.println("[DEBUG:ClickhouseUtils] Executing query: " + query);
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement stmt = conn.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
@@ -28,15 +24,15 @@ public class DbUtils {
                 for (int i = 1; i <= columns; ++i) {
                     row.put(md.getColumnName(i), rs.getObject(i));
                 }
-                System.out.println("[DEBUG:DbUtils] Query result: " + row);
+                System.out.println("[DEBUG:ClickhouseUtils] Query result: " + row);
                 return row;
             } else {
-                 System.out.println("[DEBUG:DbUtils] Query returned no results.");
+                System.out.println("[DEBUG:ClickhouseUtils] Query returned no results.");
                 return new HashMap<>(); // Return empty map if no rows found
             }
 
         } catch (SQLException e) {
-            System.err.println("[DEBUG:DbUtils] SQL Exception: " + e.getMessage());
+            System.err.println("[DEBUG:ClickhouseUtils] Clickhouse Exception: " + e.getMessage());
             throw new RuntimeException(e);
         }
     }

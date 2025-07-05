@@ -40,13 +40,13 @@ Database and other custom logic are handled **out-of-process**. The test runner 
 *   **Phase 1: Core Engine - Command-Line Runner (Completed)**
     *   Java utilities (`DbUtils.java`) created and integrated.
     *   Karate test (`sample.feature`) configured for self-contained testing.
-    *   VS Code extension command (`qato.runHardcodedTest`) implemented to execute Karate tests.
     *   Resolved classpath and Java access issues.
-*   **Phase 2: The Visual Builder - Integrating the UI (In Progress)**
+*   **Phase 2: The Visual Builder - End-to-End Workflow (Completed)**
     *   Frontend UI (`webview-ui`) successfully integrated into the project.
-    *   UI builds successfully to `dist-ui` directory.
-    *   VS Code webview panel (`qato.showPanel`) successfully loads the UI.
-    *   Communication established from UI to Extension (UI sends generated Gherkin to extension).
+    *   UI can generate Gherkin and send it to the extension backend.
+    *   Extension backend saves the Gherkin to a temporary file and runs the Karate test.
+    *   The extension captures the `stdout` of the test run, parses it for database results, and reads the final Karate JSON report.
+    *   Both the Karate summary and the extracted database results are sent back to the UI and displayed in separate tabs.
 
 ## Key Technologies
 
@@ -127,7 +127,7 @@ Original Phases to build this extension:
 
 ### **Phase 1: The Core Engine - A Command-Line Runner**
 
-**Goal:** Create a simple VS Code command that can run a hardcoded Karate test file using your Java utilities, with zero UI. This proves the entire backend toolchain works.
+**Goal:** Create a simple VS Code command that can run a hardcoded Karate test file using your Java utilities, with zero UI.
 
 1. **Create the Java Utilities (`java-utils/`):**
     - In `java-utils/pom.xml`, add dependencies for JDBC drivers and Redis.
@@ -243,7 +243,7 @@ Original Phases to build this extension:
         
                 karateProcess.stdout.on('data', data => outputChannel.append(data.toString()));
                 karateProcess.stderr.on('data', data => outputChannel.append(data.toString()));
-                karateProcess.on('close', code => outputChannel.append(`\\nProcess exited with code ${code}`));
+                karateProcess.on('close', code => outputChannel.append(`\nProcess exited with code ${code}`));
             });
         
             context.subscriptions.push(disposable);
@@ -275,7 +275,7 @@ Original Phases to build this extension:
         vscode.postMessage({
             command: 'runGeneratedTest',
             payload: {
-                featureFileContent: "Feature: My Test...\\nScenario: ...\\n" // The full text
+                featureFileContent: "Feature: My Test...\nScenario: ...\n" // The full text
             }
         });
         
@@ -379,3 +379,48 @@ Original Phases to build this extension:
 3. **Publish:**
     - Create a publisher account on the [Azure DevOps portal](https://dev.azure.com/).
     - Follow the official guide on [Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension) to upload and list your `.vsix` file on the VS Code Marketplace.
+
+## Work Progress (July 5, 2025)
+
+### UI (webview-ui)
+-   **`webview-ui/src/pages/Index.tsx`**:
+    -   Updated Gherkin generation to make HTTP calls to the DB-Access Microservice (localhost:8080/query) instead of direct Java calls.
+    -   Added `VsCodeApi` and `KarateResult` interfaces to remove `any` type usage.
+    -   Added `toast` as a dependency to `useEffect` hook.
+    -   Implemented `karate.jsonStringify()` for SQL, Redis, and ClickHouse results in Gherkin generation to ensure valid JSON output for parsing in the extension.
+    -   Added extensive debug logging.
+-   **`webview-ui/src/components/StepCard.tsx`**:
+    -   Fixed the UI for ClickHouse steps by adding a dedicated `case` in `renderStepContent`.
+-   **`webview-ui/src/components/Editor.tsx`**:
+    -   Replaced `material-icons` `<span>` tags with appropriate `lucide-react` components (`Database`, `Zap`, `Globe`, `Table`) to fix icon display issues.
+
+### VS Code Extension (src)
+-   **`src/extension.ts`**:
+    -   Added extensive debug logging to trace messages between the webview and the extension, and during Java process execution.
+
+### DB-Access Microservice (java-utils/qa-tool-orchaestrator)
+-   **`pom.xml`**:
+    -   Updated Java version to 21.
+    -   Added `clickhouse-jdbc` dependency.
+-   **`src/main/java/com.qato/utils/DbUtils.java`**:
+    -   Restored and updated with correct MySQL connection details (matching Docker Compose).
+    -   Added debug logging.
+-   **`src/main/java/com.qato/utils/RedisUtils.java`**:
+    -   Created to handle Redis commands via Jedis.
+    -   Added debug logging.
+-   **`src/main/java/com.qato/utils/ClickhouseUtils.java`**:
+    -   Created to handle ClickHouse queries via JDBC.
+    -   Added debug logging.
+-   **`src/main/java/com.qato/qa_tool_orchaestrator/controller/QueryController.java`**:
+    -   Updated to dispatch queries to `DbUtils`, `RedisUtils`, or `ClickhouseUtils` based on the `type` parameter in the request.
+    -   Added debug logging.
+-   **`src/main/java/com.qato/qa_tool_orchaestrator/QaToolOrchaestratorApplication.java`**:
+    -   Adjusted `@SpringBootApplication` `scanBasePackages` to explicitly include the `controller` sub-package.
+-   **Clean-up**: Removed conflicting duplicate `QueryController.java` file.
+
+### Development Environment
+-   **`docker-compose.yml`**:
+    -   Created a Docker Compose file to set up consistent environments for MySQL, Redis, and ClickHouse.
+    -   Configured services with appropriate images, ports, environment variables, and volumes.
+    -   Added health checks for each service.
+    -   Resolved port conflict for ClickHouse by changing its native client port to 9001.

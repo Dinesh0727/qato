@@ -6,84 +6,100 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
-declare const vscode: any; // Declare vscode API
+// Define the structure of the VS Code API object
+interface VsCodeApi {
+  postMessage(message: { command: string; payload: unknown }): void;
+}
+
+// Declare the vscode object for TypeScript
+declare const vscode: VsCodeApi;
+
+// Define the structure of the Karate test results
+interface KarateResult {
+  features: {
+    name: string;
+    failedCount: number;
+  }[];
+}
 
 const generateGherkin = (testCase: TestCase): string => {
-  let gherkin = `Feature: ${testCase.name}
-
-`;
-
-  gherkin += `Background:
-  * def DbUtils = Java.type('com.qato.utils.DbUtils')
-`;
+  console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
+  let gherkin = `Feature: ${testCase.name}\n\n`;
 
   testCase.steps.forEach(step => {
-    gherkin += `
-Scenario: ${step.name}
-`;
+    gherkin += `Scenario: ${step.name}\n`;
     switch (step.type) {
       case 'sql': {
         const sqlConfig = step.config as SqlStepConfig;
-        gherkin += `  * def result = DbUtils.readRow("${sqlConfig.query.replace(/"/g, '"')}")
-`;
-        gherkin += `  * print 'SQL Result:', result
-`;
+        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  And request { query: "${sqlConfig.query.replace(/"/g, '\"')}", type: "sql" }\n`;
+        gherkin += `  When method post\n`;
+        gherkin += `  Then status 200\n`;
+        gherkin += `  * def result = response\n`;
+        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)\n`;
+        gherkin += `  * print 'SQL Result:', stringifiedResult\n\n`;
         break;
       }
       case 'redis': {
         const redisConfig = step.config as RedisStepConfig;
-        gherkin += `  * def result = DbUtils.execute("${redisConfig.command.replace(/"/g, '"')}")
-`;
-        gherkin += `  * print 'Redis Result:', result
+        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  And request { query: "${redisConfig.command.replace(/"/g, '\"')}", type: "redis" }\n`;
+        gherkin += `  When method post\n`;
+        gherkin += `  Then status 200\n`;
+        gherkin += `  * def result = response\n`;
+        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)
+`;        gherkin += `  * print 'Redis Result:', stringifiedResult
+
 `;
         break;
       }
       case 'api': {
         const apiConfig = step.config as ApiStepConfig;
-        gherkin += `  Given url '${apiConfig.url}'
-`;
-        gherkin += `  And method ${apiConfig.method}
-`;
+        gherkin += `  Given url '${apiConfig.url}'\n`;
         if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
-          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}
-`;
+          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
         }
         if (apiConfig.body) {
-          gherkin += `  And request ${apiConfig.body}
-`;
+          gherkin += `  And request ${apiConfig.body}\n`;
         }
-        gherkin += `  When method ${apiConfig.method}
-`;
-        gherkin += `  Then status 200
-`; // Assuming 200 for now
+        gherkin += `  When method ${apiConfig.method}\n`;
+        gherkin += `  Then status 200\n\n`; // Assuming 200 for now
         break;
       }
       case 'clickhouse': {
         const clickhouseConfig = step.config as ClickhouseStepConfig;
-        gherkin += `  * def result = DbUtils.readRow("${clickhouseConfig.query.replace(/"/g, '"')}")
+        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  And request { query: "${clickhouseConfig.query.replace(/"/g, '\"')}", type: "clickhouse" }\n`;
+        gherkin += `  When method post\n`;
+        gherkin += `  Then status 200\n`;
+        gherkin += `  * def result = response\n`;
+        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)
 `;
-        gherkin += `  * print 'Clickhouse Result:', result
+        gherkin += `  * print 'Clickhouse Result:', stringifiedResult
+
 `;
         break;
       }
     }
   });
-
+  console.log('[DEBUG:Index.tsx] Generated Gherkin:', gherkin);
   return gherkin;
 };
+
 
 const Index = () => {
   const [selectedTestCase, setSelectedTestCase] = useState<TestCase | null>(null);
   const [isNavigatorCollapsed, setIsNavigatorCollapsed] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([]);
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
-  const [testResults, setTestResults] = useState<any | null>(null); // State for results
+  const [testResults, setTestResults] = useState<KarateResult | null>(null); // State for results
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      const message = event.data;
+      const message = event.data as { command: string; payload: KarateResult };
+      console.log('[DEBUG:Index.tsx] Received message from extension:', message);
       switch (message.command) {
         case 'testResult':
           setTestResults(message.payload); // Update state with results
@@ -119,7 +135,7 @@ const Index = () => {
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, []);
+  }, [toast]);
 
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
@@ -131,7 +147,7 @@ const Index = () => {
     try {
       // Generate Gherkin content
       const gherkinContent = generateGherkin(testCase);
-      console.log("Generated Gherkin:\n", gherkinContent);
+      console.log("[DEBUG:Index.tsx] Generated Gherkin content to be sent to extension:", gherkinContent);
 
       // Send message to extension
       vscode.postMessage({

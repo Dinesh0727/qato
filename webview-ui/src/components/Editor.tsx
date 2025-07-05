@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, Plus, GripVertical, Trash2 } from 'lucide-react';
+import { Play, Plus, GripVertical, Trash2, Database, Zap, Globe, Table } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -134,28 +134,28 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
                     onClick={() => handleAddStep('sql')}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-200"
                   >
-                    <span className="material-icons mr-1">storage</span> SQL
+                    <Database className="h-4 w-4 mr-1" /> SQL
                   </Button>
                   <Button
                     size="lg"
                     onClick={() => handleAddStep('redis')}
                     className="bg-red-600 hover:bg-red-700 text-white font-semibold shadow-md flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-200"
                   >
-                    <span className="material-icons mr-1">bolt</span> Redis
+                    <Zap className="h-4 w-4 mr-1" /> Redis
                   </Button>
                   <Button
                     size="lg"
                     onClick={() => handleAddStep('api')}
                     className="bg-green-600 hover:bg-green-700 text-white font-semibold shadow-md flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-200"
                   >
-                    <span className="material-icons mr-1">public</span> API
+                    <Globe className="h-4 w-4 mr-1" /> API
                   </Button>
                   <Button
                     size="lg"
                     onClick={() => handleAddStep('clickhouse')}
                     className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold shadow-md flex items-center gap-2 px-5 py-2 rounded-xl transition-all duration-200"
                   >
-                    <span className="material-icons mr-1">table_chart</span> Clickhouse
+                    <Table className="h-4 w-4 mr-1" /> Clickhouse
                   </Button>
                   <Button
                     size="sm"
