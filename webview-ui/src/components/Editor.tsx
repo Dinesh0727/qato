@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TestCase, TestStep, ClickhouseStepConfig } from '@/types';
 import { StepCard } from '@/components/StepCard';
+import { useToast } from '@/hooks/use-toast';
 
 interface EditorProps {
   testCase: TestCase | null;
@@ -18,13 +19,24 @@ interface EditorProps {
 
 export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting }: EditorProps) => {
   const [showAddStep, setShowAddStep] = useState(false);
+  const { toast } = useToast();
 
   const handleAddStep = (type: 'sql' | 'redis' | 'api' | 'clickhouse') => {
     if (!testCase) return;
 
+    const newStepName = `New ${type.toUpperCase()} Step`;
+    if (testCase.steps.some(step => step.name === newStepName)) {
+      toast({
+        title: "Duplicate Step Name",
+        description: `A step with the name "${newStepName}" already exists. Please use a unique name.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newStep: TestStep = {
       id: `step-${Date.now()}`,
-      name: `New ${type.toUpperCase()} Step`,
+      name: newStepName,
       type,
       delayMs: 0,
       order: testCase.steps.length,
@@ -59,6 +71,20 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
 
   const handleUpdateStep = (stepId: string, updates: Partial<TestStep>) => {
     if (!testCase) return;
+
+    if (updates.name) {
+      const isDuplicate = testCase.steps.some(
+        step => step.id !== stepId && step.name === updates.name
+      );
+      if (isDuplicate) {
+        toast({
+          title: "Duplicate Step Name",
+          description: `A step with the name "${updates.name}" already exists. Please use a unique name.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
 
     const updatedTestCase = {
       ...testCase,

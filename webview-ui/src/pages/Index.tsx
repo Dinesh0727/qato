@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Navigator } from '@/components/Navigator';
+import { useState, useEffect, useCallback } from 'react';
+import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
 import { Results } from '@/components/Results';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
+import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
 // Define the structure of the VS Code API object
@@ -22,35 +22,26 @@ interface KarateResult {
   }[];
 }
 
+// src/components/Index.tsx
+
 const generateGherkin = (testCase: TestCase): string => {
   console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
   let gherkin = `Feature: ${testCase.name}\n\n`;
 
   testCase.steps.forEach(step => {
-    gherkin += `Scenario: ${step.name}\n`;
-    switch (step.type) {
-      case 'sql': {
-        const sqlConfig = step.config as SqlStepConfig;
-        gherkin += `  Given url 'http://localhost:8080/query'\n`;
-        gherkin += `  And request { query: "${sqlConfig.query.replace(/"/g, '\"')}", type: "sql" }\n`;
-        gherkin += `  When method post\n`;
-        gherkin += `  Then status 200\n`;
-        gherkin += `  * def result = response\n`;
-        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)\n`;
-        gherkin += `  * print 'SQL Result:', stringifiedResult\n\n`;
-        break;
-      }
-      case 'redis': {
-        const redisConfig = step.config as RedisStepConfig;
-        gherkin += `  Given url 'http://localhost:8080/query'\n`;
-        gherkin += `  And request { query: "${redisConfig.command.replace(/"/g, '\"')}", type: "redis" }\n`;
-        gherkin += `  When method post\n`;
-        gherkin += `  Then status 200\n`;
-        gherkin += `  * def result = response\n`;
-        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)
-`;        gherkin += `  * print 'Redis Result:', stringifiedResult
+    const sanitizedStepName = step.name.replace(/'/g, "\\'");
+    gherkin += `Scenario: ${sanitizedStepName}\n`;
 
-`;
+    switch (step.type) {
+      case 'sql':
+      case 'redis':
+      case 'clickhouse': {
+        const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
+        const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
+        const requestBody = { query: query, type: step.type };
+        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  And request ${JSON.stringify(requestBody)}\n`;
+        gherkin += `  When method post\n`;
         break;
       }
       case 'api': {
@@ -60,73 +51,195 @@ const generateGherkin = (testCase: TestCase): string => {
           gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
         }
         if (apiConfig.body) {
-          gherkin += `  And request ${apiConfig.body}\n`;
+          gherkin += `  And request \`\`\`\n${apiConfig.body}\n\`\`\`\n`;
         }
-        gherkin += `  When method ${apiConfig.method}\n`;
-        gherkin += `  Then status 200\n\n`; // Assuming 200 for now
-        break;
-      }
-      case 'clickhouse': {
-        const clickhouseConfig = step.config as ClickhouseStepConfig;
-        gherkin += `  Given url 'http://localhost:8080/query'\n`;
-        gherkin += `  And request { query: "${clickhouseConfig.query.replace(/"/g, '\"')}", type: "clickhouse" }\n`;
-        gherkin += `  When method post\n`;
-        gherkin += `  Then status 200\n`;
-        gherkin += `  * def result = response\n`;
-        gherkin += `  * def stringifiedResult = karate.jsonStringify(result)
-`;
-        gherkin += `  * print 'Clickhouse Result:', stringifiedResult
-
-`;
+        gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
         break;
       }
     }
+
+    // Ensure proper JSON serialization
+    gherkin += `  Then status 200\n`;
+    gherkin += `  * def resultData = response\n`;
+    gherkin += `  * def qatoPayload = { stepName: '#(${sanitizedStepName})', type: '#(${step.type})', result: '#(resultData)' }\n`;
+    gherkin += `  * print '---QATO_RESULT_START---'\n`;
+    gherkin += `  * print karate.toJson(qatoPayload)\n`;
+    gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
   });
-  console.log('[DEBUG:Index.tsx] Generated Gherkin:', gherkin);
+
+  console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
   return gherkin;
 };
 
-
 const Index = () => {
+  const [folders, setFolders] = useState<Folder[]>([
+    {
+      id: 'folder-1',
+      name: 'E-commerce API Tests',
+      collections: [
+        {
+          id: 'collection-1',
+          name: 'User Management',
+          folderId: 'folder-1',
+          testCases: [
+            {
+              id: 'test-1',
+              name: 'Create User Flow',
+              collectionId: 'collection-1',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              steps: [
+                {
+                  id: 'step-1',
+                  name: 'Check DB Connection',
+                  type: 'sql',
+                  delayMs: 0,
+                  config: { query: 'SELECT 1;' }
+                },
+                {
+                  id: 'step-2',
+                  name: 'Clear Cache',
+                  type: 'redis',
+                  delayMs: 100,
+                  config: { command: 'FLUSHDB' }
+                },
+                {
+                  id: 'step-3',
+                  name: 'Create User API',
+                  type: 'api',
+                  delayMs: 500,
+                  config: {
+                    method: 'POST',
+                    url: 'https://api.example.com/users',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: '{"name": "John Doe", "email": "john@example.com"}'
+                  }
+                }
+              ]
+            },
+            {
+              id: 'test-2',
+              name: 'User Login Test',
+              collectionId: 'collection-1',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              steps: []
+            }
+          ]
+        },
+        {
+          id: 'collection-2',
+          name: 'Product Catalog',
+          folderId: 'folder-1',
+          testCases: [
+            {
+              id: 'test-3',
+              name: 'Product Search',
+              collectionId: 'collection-2',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              steps: []
+            }
+          ]
+        }
+      ]
+    }
+  ]);
+
+  const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
+  const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [selectedTestCase, setSelectedTestCase] = useState<TestCase | null>(null);
   const [isNavigatorCollapsed, setIsNavigatorCollapsed] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([]);
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
-  const [testResults, setTestResults] = useState<KarateResult | null>(null); // State for results
+  const [testResults, setTestResults] = useState<KarateResult | null>(null);
+  const [stepResults, setStepResults] = useState<any[]>([]); // New state for parsed results
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
 
+  const addFolder = useCallback((name: string) => {
+    const newFolder: Folder = {
+      id: `folder-${Date.now()}`,
+      name,
+      collections: [],
+    };
+    setFolders(prev => [...prev, newFolder]);
+  }, []);
+
+  const addCollection = useCallback((folderId: string, name: string) => {
+    setFolders(prevFolders => prevFolders.map(folder => {
+      if (folder.id === folderId) {
+        const newCollection: Collection = {
+          id: `collection-${Date.now()}`,
+          name,
+          folderId,
+          testCases: [],
+        };
+        return {
+          ...folder,
+          collections: [...folder.collections, newCollection],
+        };
+      }
+      return folder;
+    }));
+  }, []);
+
+  const addTestCase = useCallback((collectionId: string, name: string) => {
+    setFolders(prevFolders => prevFolders.map(folder => {
+      return {
+        ...folder,
+        collections: folder.collections.map(collection => {
+          if (collection.id === collectionId) {
+            const newTestCase: TestCase = {
+              id: `test-${Date.now()}`,
+              name,
+              collectionId,
+              steps: [],
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            return {
+              ...collection,
+              testCases: [...collection.testCases, newTestCase],
+            };
+          }
+          return collection;
+        }),
+      };
+    }));
+  }, []);
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      const message = event.data as { command: string; payload: KarateResult };
+      const message = event.data as { command:string; payload: any };
       console.log('[DEBUG:Index.tsx] Received message from extension:', message);
+      
       switch (message.command) {
-        case 'testResult':
-          setTestResults(message.payload); // Update state with results
-          // Assuming message.payload contains the parsed Karate report
-          // You'll need to map this to your ExecutionLog and ApiResponse types
-          // For now, let's just log it and show a success/failure toast
-          console.log('Received test results:', message.payload);
-          if (message.payload.features && message.payload.features.length > 0) {
-            const feature = message.payload.features[0];
-            if (feature.failedCount === 0) {
-              toast({
-                title: "Test Execution Successful",
-                description: `All scenarios passed for ${feature.name}`,
-              });
-            } else {
-              toast({
-                title: "Test Execution Failed",
-                description: `${feature.failedCount} scenario(s) failed for ${feature.name}`,
-                variant: "destructive",
-              });
-            }
-          }
-          // You would typically parse message.payload and update executionLogs and apiResponse here
-          // For example:
-          // setExecutionLogs(parseKarateLogs(message.payload));
-          // setApiResponse(parseKarateApiResponse(message.payload));
+        case 'testResult': {
+          // *** THIS IS THE NEW PART ***
+          // The test run is complete, so we can turn off the loading state.
+          setIsExecuting(false); 
+
+          const { parsedResults, ...karateSummary } = message.payload;
+          
+          setTestResults(karateSummary); 
+          setStepResults(parsedResults || []);
+          
+          console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
+          console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
+
+          // ... your toast logic ...
           break;
+        }
+        case 'testExecutionError': { // Add a case to handle errors from the backend
+            setIsExecuting(false);
+            toast({
+                title: "Execution Error",
+                description: message.payload.message || 'An unknown error occurred in the extension.',
+                variant: "destructive",
+            });
+            break;
+        }
       }
     };
 
@@ -140,49 +253,42 @@ const Index = () => {
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
     
+    // Start execution
     setIsExecuting(true);
-    setExecutionLogs([]);
-    setApiResponse(null);
+    setTestResults(null); 
+    setStepResults([]); 
     
     try {
-      // Generate Gherkin content
       const gherkinContent = generateGherkin(testCase);
-      console.log("[DEBUG:Index.tsx] Generated Gherkin content to be sent to extension:", gherkinContent);
-
-      // Send message to extension
       vscode.postMessage({
         command: 'runGeneratedTest',
-        payload: {
-          featureFileContent: gherkinContent
-        }
+        payload: { featureFileContent: gherkinContent }
       });
-
-      toast({
-        title: "Test sent to extension",
-        description: `Generated Gherkin for ${testCase.name} and sent to VS Code extension.`,
-      });
-
     } catch (error) {
-      console.error('Error generating Gherkin or sending to extension:', error);
-      
+      console.error('Error in handleRunTestCase:', error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        description: error instanceof Error ? error.message : 'An unknown error occurred while preparing the test.',
         variant: "destructive",
       });
-    } finally {
+      // If there's an error starting the test, we need to stop executing here too
       setIsExecuting(false);
     }
+    // DO NOT set isExecuting to false here.
   };
+
+  
 
   return (
     <div className="min-h-screen bg-background text-foreground flex theme-transition">
       <ThemeToggle />
-      <Navigator
+      <TestNavigator
         isCollapsed={isNavigatorCollapsed}
         onToggleCollapse={() => setIsNavigatorCollapsed(!isNavigatorCollapsed)}
         selectedTestCase={selectedTestCase}
         onSelectTestCase={setSelectedTestCase}
+        vscode={vscode}
+        folders={folders} // Assuming 'folders' state exists here
       />
       
       <div className="flex-1 flex flex-col">
@@ -196,7 +302,8 @@ const Index = () => {
         <Results
           executionLogs={executionLogs}
           apiResponse={apiResponse}
-          testResults={testResults} // Pass results to the component
+          testResults={testResults} // Pass summary results
+          stepResults={stepResults} // Pass step-by-step results
         />
       </div>
     </div>

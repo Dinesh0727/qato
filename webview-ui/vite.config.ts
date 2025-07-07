@@ -23,5 +23,7 @@ export default defineConfig(({ mode }) => ({
     outDir: '../dist-ui',
     emptyOutDir: true,
     base: './',
+    minify: false,
+    sourcemap: true,
   },
 }));

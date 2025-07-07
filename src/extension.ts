@@ -32,10 +32,31 @@ export function activate(context: vscode.ExtensionContext) {
         panel.webview.html = finalHtml;
 
         panel.webview.onDidReceiveMessage(
-            message => {
+            async message => { // Make the handler async
                 console.log('[DEBUG:extension.ts] Received message from webview:', message);
-                if (message.command === 'runGeneratedTest') {
-                    runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
+                switch (message.command) {
+                    case 'runGeneratedTest':
+                        runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
+                        break;
+
+                    // --- ADD THIS NEW CASE ---
+                    case 'showInputBox': {
+                        const { prompt, placeholder, context: messageContext } = message.payload;
+                        const result = await vscode.window.showInputBox({
+                            prompt: prompt,
+                            placeHolder: placeholder,
+                        });
+
+                        // Send the result back to the webview, including the original context
+                        panel.webview.postMessage({
+                            command: 'inputBoxResult',
+                            payload: {
+                                value: result, // Will be undefined if the user cancels
+                                context: messageContext
+                            }
+                        });
+                        break;
+                    }
                 }
             },
             undefined,
@@ -97,55 +118,54 @@ function stopDbAccessService() {
 }
 
 async function runGeneratedKarateTest(featureFileContent: string, context: vscode.ExtensionContext, panel: vscode.WebviewPanel) {
-    console.log('[DEBUG:extension.ts] Running generated Karate test with content:', featureFileContent);
+    console.log('[DEBUG:extension.ts] Running generated Karate test.');
     try {
         await startDbAccessService(context);
     } catch (error: any) {
         vscode.window.showErrorMessage(`Failed to start DB Access Service: ${error.message}`);
+        panel.webview.postMessage({ command: 'testExecutionError', payload: { message: `Failed to start DB Access Service: ${error.message}` } });
         return;
     }
 
     const projectRootPath = context.extensionPath;
-    const tempFeatureFilePath = path.join(os.tmpdir(), 'qato-temp.feature');
+    const tempFeatureFilePath = path.join(os.tmpdir(), `qato-temp-${Date.now()}.feature`);
 
     try {
         fs.writeFileSync(tempFeatureFilePath, featureFileContent, 'utf8');
-        console.log(`[DEBUG:extension.ts] Wrote feature file to: ${tempFeatureFilePath}`);
+        console.log(`[DEBUG:extension.ts] Wrote temporary feature file to: ${tempFeatureFilePath}`);
     } catch (error: any) {
         vscode.window.showErrorMessage(`Failed to create temporary feature file: ${error.message}`);
         return;
     }
 
     const karateJarPath = path.join(projectRootPath, 'resources', 'karate-1.5.1.jar');
-    const outputChannel = vscode.window.createOutputChannel("Karate Results");
-    outputChannel.show();
-    outputChannel.clear();
-    outputChannel.appendLine(`[QATO] Running generated test: ${tempFeatureFilePath}`);
-    outputChannel.appendLine('---\n');
-
     const karateProcess = cp.spawn('java', [
-        '-Dkarate.host=all',
-        '-cp',
+        '-Dkarate.options=--output ' + path.join(projectRootPath, 'target'),
+        '-jar',
         karateJarPath,
-        'com.intuit.karate.Main',
         tempFeatureFilePath,
-        '--output',
-        path.join(projectRootPath, 'target')
     ], {
         cwd: projectRootPath
     });
 
     let stdout = '';
+    let stderr = '';
+
     karateProcess.stdout.on('data', data => {
-        const output = data.toString();
-        outputChannel.append(output);
-        stdout += output;
+        stdout += data.toString();
     });
-    karateProcess.stderr.on('data', data => outputChannel.append(data.toString()));
+    karateProcess.stderr.on('data', data => {
+        stderr += data.toString();
+    });
 
     karateProcess.on('close', code => {
-        outputChannel.append(`\n---\n[QATO] Process exited with code ${code}`);
         console.log(`[DEBUG:extension.ts] Karate process exited with code ${code}.`);
+        console.log("[DEBUG:extension.ts] --- Captured STDOUT ---");
+        console.log(stdout);
+        if (stderr) {
+            console.log("[DEBUG:extension.ts] --- Captured STDERR ---");
+            console.log(stderr);
+        }
 
         const reportPath = path.join(projectRootPath, 'target', 'karate-reports', 'karate-summary-json.txt');
         let testResults = {};
@@ -154,45 +174,80 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
             if (fs.existsSync(reportPath)) {
                 const reportContent = fs.readFileSync(reportPath, 'utf8');
                 testResults = JSON.parse(reportContent);
-                console.log('[DEBUG:extension.ts] Parsed Karate report:', testResults);
             } else {
-                throw new Error('Karate summary report not found.');
+                console.warn('[DEBUG:extension.ts] Karate summary report not found. May be a test failure before report generation.');
+                testResults = { error: 'Karate summary report not found.' };
             }
         } catch (reportError: any) {
-            console.error('Error reading or parsing Karate report:', reportError);
-            vscode.window.showErrorMessage(`Failed to process Karate report: ${reportError.message}`);
+            console.error('[DEBUG:extension.ts] Error reading or parsing Karate report:', reportError);
             testResults = { error: `Failed to process report: ${reportError.message}` };
         }
 
-        const dbResults: any[] = [];
-        const regex = /(?:SQL Result:|Redis Result:|Clickhouse Result:)\s*(\{[\s\S]*?\})/gm;
-        let match;
-        while ((match = regex.exec(stdout)) !== null) {
-            try {
-                dbResults.push(JSON.parse(match[1]));
-            } catch (e) {
-                console.error("Failed to parse DB result JSON:", e);
-                console.error("Problematic JSON string:", match[1]);
+        // --- Simplified parsing logic ---
+        const parsedResults: any[] = [];
+        const lines = stdout.split('\n');
+        let capturing = false;
+        let contentBlock = '';
+
+        for (const line of lines) {
+            if (line.includes('---QATO_RESULT_START---')) {
+                capturing = true;
+                contentBlock = ''; // Reset for the new block
+                continue;
+            }
+
+            if (line.includes('---QATO_RESULT_END---')) {
+                if (capturing) {
+                    capturing = false;
+
+                    // Clean the collected block by removing log prefixes from each line
+                    const cleanedLines = contentBlock.split('\n').map(l => {
+                        const printPrefix = '[print] ';
+                        const startIndex = l.indexOf(printPrefix);
+                        return startIndex !== -1 ? l.substring(startIndex + printPrefix.length) : l;
+                    });
+                    const jsonBlob = cleanedLines.join('\n').trim();
+
+                    try {
+                        if (jsonBlob) { // Avoid parsing empty strings
+                            const parsedObject = JSON.parse(jsonBlob);
+                            parsedResults.push(parsedObject);
+                        }
+                    } catch (e: any) {
+                        console.error('[DEBUG:extension.ts] Failed to parse JSON blob from stdout:', e.message);
+                        console.error('[DEBUG:extension.ts] Faulty JSON blob:', jsonBlob);
+                        parsedResults.push({
+                            stepName: 'Unknown Step (Parse Error)',
+                            type: 'error',
+                            result: {
+                                error: 'Failed to parse result from test log.',
+                                raw: jsonBlob
+                            }
+                        });
+                    }
+                }
+                continue; // Move to the next line
+            }
+
+            if (capturing) {
+                contentBlock += line + '\n'; // Append line to the block
             }
         }
-
-        console.log("--- Captured STDOUT ---");
-        console.log(stdout);
-        console.log("--- Parsed DB Results ---");
-        console.log(dbResults);
+        
+        console.log("[DEBUG:extension.ts] --- Parsed Results (Raw from Extension) ---");
+        console.log(JSON.stringify(parsedResults, null, 2));
 
         panel.webview.postMessage({
             command: 'testResult',
-            payload: { ...testResults, dbResults }
+            payload: { ...testResults, parsedResults } // Send raw JSON strings to the webview
         });
 
         if (code !== 0) {
-            vscode.window.showErrorMessage(`Karate test run failed. See "Karate Results" output for details.`);
+            vscode.window.showErrorMessage(`Karate test run failed. See console logs for details.`);
         }
 
         try {
             fs.unlinkSync(tempFeatureFilePath);
-            console.log(`[DEBUG:extension.ts] Deleted temporary feature file: ${tempFeatureFilePath}`);
         } catch (cleanupError: any) {
             console.error(`Failed to clean up temporary file: ${cleanupError.message}`);
         }

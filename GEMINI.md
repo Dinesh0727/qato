@@ -389,14 +389,23 @@ Original Phases to build this extension:
     -   Added `toast` as a dependency to `useEffect` hook.
     -   Implemented `karate.jsonStringify()` for SQL, Redis, and ClickHouse results in Gherkin generation to ensure valid JSON output for parsing in the extension.
     -   Added extensive debug logging.
+    -   **Fixed UI rendering issues:** Resolved `PendingMigrationError` and `ReferenceError: Cannot access 'S' before initialization` by correctly ordering function definitions and using `useCallback` for `addFolder`, `addCollection`, and `addTestCase`.
+    -   **Improved Gherkin generation for API calls:** Corrected multi-line JSON handling for API request bodies using triple double-quotes (`"""`). Used `def` to define headers and request bodies as variables in Gherkin for better readability and robustness.
+    -   **Enhanced result visualization:** Modified Gherkin `print` statements to include step names for SQL, Redis, Clickhouse, and API results.
 -   **`webview-ui/src/components/StepCard.tsx`**:
     -   Fixed the UI for ClickHouse steps by adding a dedicated `case` in `renderStepContent`.
 -   **`webview-ui/src/components/Editor.tsx`**:
     -   Replaced `material-icons` `<span>` tags with appropriate `lucide-react` components (`Database`, `Zap`, `Globe`, `Table`) to fix icon display issues.
+    -   **Implemented duplicate step name validation** with toast notifications.
+-   **`webview-ui/src/components/DynamicTable.tsx`**:
+    -   **New component created** for rendering tabular data dynamically.
+-   **`webview-ui/src/components/Results.tsx`**:
+    -   **Updated to display step-based API and DB results**, utilizing `DynamicTable` for DB results.
 
 ### VS Code Extension (src)
 -   **`src/extension.ts`**:
     -   Added extensive debug logging to trace messages between the webview and the extension, and during Java process execution.
+    -   **Updated result parsing** to extract step names and corresponding results for all step types.
 
 ### DB-Access Microservice (java-utils/qa-tool-orchaestrator)
 -   **`pom.xml`**:

@@ -1,20 +1,47 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Clock, CheckCircle, AlertCircle, XCircle } from 'lucide-react';
+import { DynamicTable } from '@/components/DynamicTable';
+import { ExecutionLog, ApiResponse } from '@/types';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { ExecutionLog, ApiResponse } from '@/types';
+import { CheckCircle, AlertCircle, XCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface ResultsProps {
   executionLogs: ExecutionLog[];
-  apiResponse: ApiResponse | null;
-  testResults: any | null;
+  apiResponse: ApiResponse | null; 
+  testResults: { [key: string]: any } | null; // For the raw summary
+  stepResults: { stepName: string; type: string; result: any }[]; // For step-by-step results
 }
 
-export const Results = ({ executionLogs, apiResponse, testResults }: ResultsProps) => {
-  const [expandedResponse, setExpandedResponse] = useState(false);
+export const Results = ({ executionLogs, testResults, stepResults }: ResultsProps) => {
+  const [expandedApiSteps, setExpandedApiSteps] = useState<Set<string>>(new Set());
+  const [expandedDbSteps, setExpandedDbSteps] = useState<Set<string>>(new Set());
+
+  const toggleApiStep = (stepName: string) => {
+    setExpandedApiSteps(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(stepName)) {
+        newSet.delete(stepName);
+      } else {
+        newSet.add(stepName);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleDbStep = (stepName: string) => {
+    setExpandedDbSteps(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(stepName)) {
+        newSet.delete(stepName);
+      } else {
+        newSet.add(stepName);
+      }
+      return newSet;
+    });
+  };
 
   const getLevelIcon = (level: string) => {
     switch (level) {
@@ -48,6 +75,9 @@ export const Results = ({ executionLogs, apiResponse, testResults }: ResultsProp
     return 'text-yellow-400';
   };
 
+  const apiResults = stepResults.filter(r => r.type === 'api');
+  const dbResults = stepResults.filter(r => ['sql', 'redis', 'clickhouse'].includes(r.type));
+
   return (
     <div className="bg-background border-t border-border" style={{ height: '40vh' }}>
       <Tabs defaultValue="logs" className="h-full flex flex-col">
@@ -56,13 +86,13 @@ export const Results = ({ executionLogs, apiResponse, testResults }: ResultsProp
             Execution Log ({executionLogs.length})
           </TabsTrigger>
           <TabsTrigger value="response" className="data-[state=active]:bg-accent">
-            API Response
-          </TabsTrigger>
-          <TabsTrigger value="results" className="data-[state=active]:bg-accent">
-            Test Results
+            API Responses ({apiResults.length})
           </TabsTrigger>
           <TabsTrigger value="db-results" className="data-[state=active]:bg-accent">
-            DB Results
+            DB Results ({dbResults.length})
+          </TabsTrigger>
+          <TabsTrigger value="results" className="data-[state=active]:bg-accent">
+            Raw Test Results
           </TabsTrigger>
         </TabsList>
 
@@ -112,96 +142,119 @@ export const Results = ({ executionLogs, apiResponse, testResults }: ResultsProp
         <TabsContent value="response" className="flex-1 p-0">
           <ScrollArea className="h-full">
             <div className="p-4">
-              {!apiResponse ? (
+              {apiResults.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="text-4xl mb-2">🌐</div>
-                  <p className="text-muted-foreground">No API response yet</p>
+                  <p className="text-muted-foreground">No API responses yet</p>
                   <p className="text-sm text-muted-foreground/70">Execute an API step to see response details</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Status */}
-                  <Card className="bg-card border-border p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-medium text-foreground">Response Status</h3>
-                      <span className="text-sm text-muted-foreground">{apiResponse.executionTime}ms</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={`${getStatusColor(apiResponse.status)} bg-transparent border-current`}>
-                        {apiResponse.status}
-                      </Badge>
-                      <span className="text-foreground">{apiResponse.statusText}</span>
-                    </div>
-                  </Card>
+                  {apiResults.map((apiRes, index) => (
+                    <Card key={index} className="bg-card border-border p-4">
+                      <Button
+                        variant="ghost"
+                        onClick={() => toggleApiStep(apiRes.stepName)}
+                        className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                      >
+                        {expandedApiSteps.has(apiRes.stepName) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                        <span className="font-medium">API Response: {apiRes.stepName}</span>
+                      </Button>
 
-                  {/* Headers */}
-                  <Card className="bg-card border-border p-4">
-                    <Button
-                      variant="ghost"
-                      onClick={() => setExpandedResponse(!expandedResponse)}
-                      className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
-                    >
-                      {expandedResponse ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <span className="font-medium">Headers ({Object.keys(apiResponse.headers).length})</span>
-                    </Button>
-                    
-                    {expandedResponse && (
-                      <div className="space-y-1">
-                        {Object.entries(apiResponse.headers).map(([key, value]) => (
-                          <div key={key} className="flex items-center gap-2 text-sm">
-                            <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
-                            <span className="text-foreground">{value}</span>
+                      {expandedApiSteps.has(apiRes.stepName) && (
+                        <div className="space-y-4 mt-2">
+                          {/* Status */}
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-medium text-foreground">Status</h3>
+                            <span className="text-sm text-muted-foreground">{apiRes.result.time}ms</span>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </Card>
+                          <div className="flex items-center gap-2">
+                            <Badge className={`${getStatusColor(apiRes.result.status)} bg-transparent border-current`}>
+                              {apiRes.result.status}
+                            </Badge>
+                            <span className="text-foreground">{apiRes.result.statusText}</span>
+                          </div>
 
-                  {/* Body */}
-                  <Card className="bg-card border-border p-4">
-                    <h3 className="font-medium text-foreground mb-2">Response Body</h3>
-                    <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                      {JSON.stringify(apiResponse.body, null, 2)}
-                    </pre>
-                  </Card>
+                          {/* Headers */}
+                          <h3 className="font-medium text-foreground">Headers</h3>
+                          <div className="space-y-1">
+                            {Object.entries(apiRes.result.headers).map(([key, value]) => (
+                              <div key={key} className="flex items-center gap-2 text-sm">
+                                <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
+                                <span className="text-foreground">{String(value)}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* Body */}
+                          <h3 className="font-medium text-foreground mb-2">Body</h3>
+                          <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                            {JSON.stringify(apiRes.result.body, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </Card>
+                  ))}
                 </div>
               )}
             </div>
           </ScrollArea>
         </TabsContent>
-        <TabsContent value="results" className="flex-1 p-0">
-          <ScrollArea className="h-full">
-            <div className="p-4">
-              {!testResults ? (
-                <div className="text-center py-8">
-                  <div className="text-4xl mb-2">📊</div>
-                  <p className="text-muted-foreground">No test results yet</p>
-                  <p className="text-sm text-muted-foreground/70">Run a test to see the results</p>
-                </div>
-              ) : (
-                <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                  {JSON.stringify(testResults, null, 2)}
-                </pre>
-              )}
-            </div>
-          </ScrollArea>
-        </TabsContent>
+
         <TabsContent value="db-results" className="flex-1 p-0">
           <ScrollArea className="h-full">
             <div className="p-4">
-              {!testResults || !testResults.dbResults || testResults.dbResults.length === 0 ? (
+              {dbResults.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="text-4xl mb-2">💾</div>
                   <p className="text-muted-foreground">No DB results yet</p>
                   <p className="text-sm text-muted-foreground/70">Run a test with a DB step to see the results</p>
                 </div>
               ) : (
+                <div className="space-y-4">
+                  {dbResults.map((dbRes, index) => (
+                    <Card key={index} className="bg-card border-border p-4">
+                      <Button
+                        variant="ghost"
+                        onClick={() => toggleDbStep(dbRes.stepName)}
+                        className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                      >
+                        {expandedDbSteps.has(dbRes.stepName) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                        <span className="font-medium">DB Result: {dbRes.stepName} ({dbRes.type.toUpperCase()})</span>
+                      </Button>
+                      {expandedDbSteps.has(dbRes.stepName) && (
+                        <div className="mt-2">
+                          <DynamicTable data={Array.isArray(dbRes.result) ? dbRes.result : [dbRes.result]} />
+                        </div>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="results" className="flex-1 p-0">
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              {!testResults ? (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">📊</div>
+                  <p className="text-muted-foreground">No raw test results yet</p>
+                  <p className="text-sm text-muted-foreground/70">Run a test to see the raw results</p>
+                </div>
+              ) : (
                 <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                  {JSON.stringify(testResults.dbResults, null, 2)}
+                  {JSON.stringify(testResults, null, 2)}
                 </pre>
               )}
             </div>
