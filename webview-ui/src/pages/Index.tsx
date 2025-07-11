@@ -46,12 +46,29 @@ const generateGherkin = (testCase: TestCase): string => {
       }
       case 'api': {
         const apiConfig = step.config as ApiStepConfig;
-        gherkin += `  Given url '${apiConfig.url}'\n`;
+        if (apiConfig.method.toUpperCase() === 'GET' && apiConfig.url.includes('?')) {
+          try {
+            const url = new URL(apiConfig.url);
+            const baseUrl = `${url.protocol}//${url.host}${url.pathname}`;
+            gherkin += `  Given url '${baseUrl}'\n`;
+            
+            url.searchParams.forEach((value, key) => {
+              const escapedValue = value.replace(/'/g, "\\'");
+              gherkin += `  And param ${key} = '${escapedValue}'\n`;
+            });
+          } catch (e) {
+            console.error("Invalid URL for GET request, falling back to old behavior:", apiConfig.url, e);
+            gherkin += `  Given url '${apiConfig.url}'\n`;
+          }
+        } else {
+          gherkin += `  Given url '${apiConfig.url}'\n`;
+        }
+
         if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
           gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
         }
         if (apiConfig.body) {
-          gherkin += `  And request \`\`\`\n${apiConfig.body}\n\`\`\`\n`;
+          gherkin += `  And request """\n${apiConfig.body}\n"""\n`;
         }
         gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
         break;
@@ -61,7 +78,7 @@ const generateGherkin = (testCase: TestCase): string => {
     // Ensure proper JSON serialization
     gherkin += `  Then status 200\n`;
     gherkin += `  * def resultData = response\n`;
-    gherkin += `  * def qatoPayload = { stepName: '#(${sanitizedStepName})', type: '#(${step.type})', result: '#(resultData)' }\n`;
+    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)' }\n`;
     gherkin += `  * print '---QATO_RESULT_START---'\n`;
     gherkin += `  * print karate.toJson(qatoPayload)\n`;
     gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
@@ -209,55 +226,63 @@ const Index = () => {
     }));
   }, []);
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      const message = event.data as { command:string; payload: any };
-      console.log('[DEBUG:Index.tsx] Received message from extension:', message);
-      
-      switch (message.command) {
-        case 'testResult': {
-          // *** THIS IS THE NEW PART ***
-          // The test run is complete, so we can turn off the loading state.
-          setIsExecuting(false); 
+  const handleMessage = useCallback((event: MessageEvent) => {
+    const message = event.data as { command: string; payload: any };
+    console.log('[DEBUG:Index.tsx] Received message from extension:', message);
 
-          const { parsedResults, ...karateSummary } = message.payload;
-          
-          setTestResults(karateSummary); 
-          setStepResults(parsedResults || []);
-          
-          console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
-          console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
+    switch (message.command) {
+      case 'testResult': {
+        setIsExecuting(false);
+        if (!message.payload) {
+            console.error('Received testResult with null payload.');
+            toast({ title: "Error", description: "Received empty test results.", variant: "destructive" });
+            return;
+        }
+        
+        const { parsedResults, ...karateSummary } = message.payload;
+        setTestResults(karateSummary);
+        setStepResults(parsedResults || []);
+        console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
+        console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
 
-          // ... your toast logic ...
-          break;
-        }
-        case 'testExecutionError': { // Add a case to handle errors from the backend
-            setIsExecuting(false);
-            toast({
-                title: "Execution Error",
-                description: message.payload.message || 'An unknown error occurred in the extension.',
-                variant: "destructive",
-            });
-            break;
-        }
+        toast({
+          title: "Test Run Finished",
+          description: `See the results in the tabs below.`,
+        });
+        break;
       }
-    };
+      case 'testExecutionError': {
+        setIsExecuting(false);
+        toast({
+          title: "Execution Error",
+          description: message.payload.message || 'An unknown error occurred in the extension.',
+          variant: "destructive",
+        });
+        break;
+      }
+    }
+  }, [toast]); // Dependencies for the callback
 
+  useEffect(() => {
     window.addEventListener('message', handleMessage);
-
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [toast]);
+  }, [handleMessage]); // Effect depends on the memoized callback
 
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
-    
-    // Start execution
+
     setIsExecuting(true);
-    setTestResults(null); 
-    setStepResults([]); 
-    
+    setTestResults(null);
+    setStepResults([]);
+    setExecutionLogs([]); // Clear previous logs
+
+    toast({
+      title: "Test Run Started",
+      description: `Executing: ${testCase.name}`,
+    });
+
     try {
       const gherkinContent = generateGherkin(testCase);
       vscode.postMessage({
@@ -271,10 +296,8 @@ const Index = () => {
         description: error instanceof Error ? error.message : 'An unknown error occurred while preparing the test.',
         variant: "destructive",
       });
-      // If there's an error starting the test, we need to stop executing here too
       setIsExecuting(false);
     }
-    // DO NOT set isExecuting to false here.
   };
 
   
@@ -301,7 +324,6 @@ const Index = () => {
         
         <Results
           executionLogs={executionLogs}
-          apiResponse={apiResponse}
           testResults={testResults} // Pass summary results
           stepResults={stepResults} // Pass step-by-step results
         />

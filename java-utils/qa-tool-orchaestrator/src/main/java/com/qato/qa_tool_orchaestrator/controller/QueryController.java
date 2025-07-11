@@ -7,13 +7,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
 public class QueryController {
 
     @PostMapping("/query")
-    public Map<String, Object> query(@RequestBody Map<String, String> request) {
+    public List<Map<String, Object>> query(@RequestBody Map<String, String> request) {
         System.out.println("[DEBUG:QueryController] Received request: " + request);
         String query = request.get("query");
         String type = request.get("type");
@@ -24,16 +25,17 @@ public class QueryController {
 
         switch (type.toLowerCase()) {
             case "sql":
-                return DbUtils.readRow(query);
+                return DbUtils.readRows(query);
             case "redis":
                 return RedisUtils.executeCommand(query);
             case "clickhouse":
-                return ClickhouseUtils.readRow(query);
+                return ClickhouseUtils.readRows(query);
             case "api":
                 // API calls are handled directly by Karate, not through this service.
                 // This case should ideally not be reached for API calls.
-                System.out.println("[DEBUG:QueryController] API call type received, but should be handled by Karate directly.");
-                return Map.of("status", "success", "message", "API call type received, handled by Karate.");
+                System.out.println(
+                        "[DEBUG:QueryController] API call type received, but should be handled by Karate directly.");
+                return List.of(Map.of("status", "success", "message", "API call type received, handled by Karate."));
             default:
                 throw new IllegalArgumentException("Unsupported query type: " + type);
         }

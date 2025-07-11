@@ -14,30 +14,40 @@ public class DbUtils {
     private static final String USER = "dinesh";
     private static final String PASSWORD = "password";
 
-    public static Map<String, Object> readRow(String query) {
+    public static List<Map<String, Object>> readRows(String query) {
         System.out.println("[DEBUG:DbUtils] Executing query: " + query);
+
+        // Add a default limit if one isn't specified for SELECT queries
+        if (!query.toLowerCase().contains("limit")) {
+            StringBuilder queryBuilder = new StringBuilder(query);
+            queryBuilder.deleteCharAt(queryBuilder.length() - 1);
+            queryBuilder.append(" LIMIT 200").append(";");
+            query = queryBuilder.toString();
+            System.out.println("[DEBUG:ClickhouseUtils] No LIMIT found, updated query: " + query);
+        }
+
+        List<Map<String, Object>> resultList = new ArrayList<>();
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement stmt = conn.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
 
             ResultSetMetaData md = rs.getMetaData();
             int columns = md.getColumnCount();
-            Map<String, Object> row = new HashMap<>(columns);
 
-            if (rs.next()) {
+            while (rs.next()) {
+                Map<String, Object> row = new HashMap<>(columns);
                 for (int i = 1; i <= columns; ++i) {
                     row.put(md.getColumnName(i), rs.getObject(i));
                 }
-                System.out.println("[DEBUG:DbUtils] Query result: " + row);
-                return row;
-            } else {
-                 System.out.println("[DEBUG:DbUtils] Query returned no results.");
-                return new HashMap<>(); // Return empty map if no rows found
+                resultList.add(row);
             }
 
         } catch (SQLException e) {
             System.err.println("[DEBUG:DbUtils] SQL Exception: " + e.getMessage());
             throw new RuntimeException(e);
         }
+
+        System.out.println("[DEBUG:DbUtils] Query result: " + resultList.size() + " rows found.");
+        return resultList;
     }
 }
