@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 
 public class DbUtils {
 
@@ -17,13 +18,21 @@ public class DbUtils {
     public static List<Map<String, Object>> readRows(String query) {
         System.out.println("[DEBUG:DbUtils] Executing query: " + query);
 
+        if (!query.trim().toLowerCase().startsWith("select")) {
+            // If it's not a SELECT query, delegate to executeStatement
+            return Collections.singletonList(executeStatement(query));
+        }
+
         // Add a default limit if one isn't specified for SELECT queries
         if (!query.toLowerCase().contains("limit")) {
             StringBuilder queryBuilder = new StringBuilder(query);
-            queryBuilder.deleteCharAt(queryBuilder.length() - 1);
-            queryBuilder.append(" LIMIT 200").append(";");
+            // Check if the query ends with a semicolon, if so, remove it before appending LIMIT
+            if (queryBuilder.charAt(queryBuilder.length() - 1) == ';') {
+                queryBuilder.deleteCharAt(queryBuilder.length() - 1);
+            }
+            queryBuilder.append(" LIMIT 200;");
             query = queryBuilder.toString();
-            System.out.println("[DEBUG:ClickhouseUtils] No LIMIT found, updated query: " + query);
+            System.out.println("[DEBUG:DbUtils] No LIMIT found, updated query: " + query);
         }
 
         List<Map<String, Object>> resultList = new ArrayList<>();
@@ -44,10 +53,28 @@ public class DbUtils {
 
         } catch (SQLException e) {
             System.err.println("[DEBUG:DbUtils] SQL Exception: " + e.getMessage());
-            throw new RuntimeException(e);
+            // Return a structured error for consistency
+            return Collections.singletonList(Map.of("error", e.getMessage()));
         }
 
         System.out.println("[DEBUG:DbUtils] Query result: " + resultList.size() + " rows found.");
         return resultList;
     }
+
+    public static Map<String, Object> executeStatement(String query) {
+        System.out.println("[DEBUG:DbUtils] Executing statement: " + query);
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
+            int affectedRows = stmt.executeUpdate();
+            System.out.println("[DEBUG:DbUtils] Affected rows: " + affectedRows);
+            return Map.of("affectedRows", affectedRows);
+
+        } catch (SQLException e) {
+            System.err.println("[DEBUG:DbUtils] SQL Exception during statement execution: " + e.getMessage());
+            // Return a structured error for consistency
+            return Map.of("error", e.getMessage());
+        }
+    }
 }
+

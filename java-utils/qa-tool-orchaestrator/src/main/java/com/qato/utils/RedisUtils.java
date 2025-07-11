@@ -15,27 +15,33 @@ public class RedisUtils {
     public static List<Map<String, Object>> executeCommand(String command) {
         System.out.println("[DEBUG:RedisUtils] Executing command: " + command);
         try (Jedis jedis = new Jedis(HOST, PORT)) {
-            // This is a very basic implementation. A real implementation would
-            // need to parse the command and call the appropriate Jedis method.
-            // For now, we'll just support a simple GET command.
-            if (command.toLowerCase().startsWith("get")) {
-                String key = command.split(" ")[1];
-                String value = jedis.get(key);
-                System.out.println("[DEBUG:RedisUtils] Command result: " + value);
-                return Collections.singletonList(Map.of("result", value));
-            } else if (command.toLowerCase().startsWith("set")) {
-                String key = command.split(" ")[1];
-                String value = command.split(" ")[2];
-                jedis.set(key, value);
-                System.out.println("[DEBUG:RedisUtils] Command result: " + value);
-                return Collections.singletonList(Map.of("result", value));
-            } else {
-                System.out.println("[DEBUG:RedisUtils] Unsupported command: " + command);
-                return Collections.singletonList(Map.of("error", "Unsupported command"));
+            String[] parts = command.trim().split("\\s+");
+            String mainCommand = parts[0].toLowerCase();
+
+            switch (mainCommand) {
+                case "get":
+                    if (parts.length < 2) return Collections.singletonList(Map.of("error", "GET command requires a key."));
+                    String key = parts[1];
+                    String value = jedis.get(key);
+                    System.out.println("[DEBUG:RedisUtils] Command result: " + value);
+                    return Collections.singletonList(Map.of("result", value != null ? value : "(nil)"));
+                case "set":
+                    if (parts.length < 3) return Collections.singletonList(Map.of("error", "SET command requires a key and a value."));
+                    String setResult = jedis.set(parts[1], parts[2]);
+                    System.out.println("[DEBUG:RedisUtils] Command result: " + setResult);
+                    return Collections.singletonList(Map.of("result", setResult));
+                case "flushdb":
+                    String flushResult = jedis.flushDB();
+                    System.out.println("[DEBUG:RedisUtils] Command result: " + flushResult);
+                    return Collections.singletonList(Map.of("result", flushResult));
+                default:
+                    System.out.println("[DEBUG:RedisUtils] Unsupported command: " + command);
+                    return Collections.singletonList(Map.of("error", "Unsupported command: " + mainCommand));
             }
         } catch (Exception e) {
             System.err.println("[DEBUG:RedisUtils] Redis Exception: " + e.getMessage());
-            throw new RuntimeException(e);
+            // Return a structured error
+            return Collections.singletonList(Map.of("error", e.getMessage()));
         }
     }
 }

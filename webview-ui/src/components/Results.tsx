@@ -160,7 +160,11 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
           <ScrollArea className="h-full">
             <div className="p-4">
               {apiResults.length === 0 ? (
-                <div className="text-center py-8">...</div>
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">📡</div>
+                  <p className="text-muted-foreground">No API responses yet</p>
+                  <p className="text-sm text-muted-foreground/70">Run an API test to see responses here</p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {apiResults.map((apiRes, index) => {
@@ -238,7 +242,11 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
           <ScrollArea className="h-full">
             <div className="p-4">
               {dbResults.length === 0 ? (
-                <div className="text-center py-8">...</div>
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">🗄️</div>
+                  <p className="text-muted-foreground">No DB results yet</p>
+                  <p className="text-sm text-muted-foreground/70">Run a SQL, Redis, or ClickHouse test to see results here</p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {dbResults.map((dbRes, index) => {

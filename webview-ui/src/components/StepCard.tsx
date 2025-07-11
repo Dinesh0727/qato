@@ -80,13 +80,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
           <div className="space-y-3">
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Redis Command</label>
-              <Input
+              <Textarea
                 value={redisConfig.command}
                 onChange={(e) => onUpdate({ 
                   config: { ...redisConfig, command: e.target.value } 
                 })}
                 placeholder="SET key value"
-                className="bg-muted border-border text-foreground font-mono rounded-lg"
+                className="bg-muted border-border text-foreground font-mono rounded-lg min-h-[80px] break-all"
               />
             </div>
             <div>
@@ -126,7 +126,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
                   <SelectItem value="PATCH">PATCH</SelectItem>
                 </SelectContent>
               </Select>
-              <Input
+              <Textarea
                 value={apiConfig.url}
                 onChange={(e) => onUpdate({ 
                   config: { ...apiConfig, url: e.target.value } 
