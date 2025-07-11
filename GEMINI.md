@@ -433,3 +433,37 @@ Original Phases to build this extension:
     -   Configured services with appropriate images, ports, environment variables, and volumes.
     -   Added health checks for each service.
     -   Resolved port conflict for ClickHouse by changing its native client port to 9001.
+
+
+
+## Work Progress (July 11, 2025)
+
+### UI (webview-ui)
+-   **`webview-ui/src/pages/Index.tsx`**:
+    -   The `handleMessage` function now correctly processes the `testResult` command, separating the `parsedResults` from the `karateSummary`.
+    -   The `stepResults` state is now correctly updated with the `parsedResults`.
+-   **`webview-ui/src/components/Results.tsx`**:
+    -   The component now correctly receives and displays the `stepResults`.
+    -   A `getParsedResult` function has been added to safely parse the result string.
+    -   The component now correctly renders the API and DB results in their respective tabs.
+-   **`webview-ui/src/components/DynamicTable.tsx`**:
+    -   The component now correctly renders tabular data, handling cases where the data is empty.
+-   **`webview-ui/src/components/Editor.tsx`**:
+    -   The `handleAddStep` function now correctly adds new steps to the test case.
+-   **`webview-ui/src/components/StepCard.tsx`**:
+    -   The component now correctly renders the content for each step type.
+
+### VS Code Extension (src)
+-   **`src/extension.ts`**:
+    -   The `runGeneratedKarateTest` function now uses a more robust regex-based approach to parse the results from the Karate test output.
+    -   The parsed results are now correctly sent to the webview.
+
+### DB-Access Microservice (java-utils/qa-tool-orchaestrator)
+-   **`src/main/java/com.qato/utils/DbUtils.java`**:
+    -   The `readRows` function now handles non-`SELECT` queries by delegating to the `executeStatement` function.
+    -   A default `LIMIT` of 200 is now added to `SELECT` queries that do not have one.
+-   **`src/main/java/com.qato/utils/RedisUtils.java`**:
+    -   The `executeCommand` function now correctly handles various Redis commands.
+-   **`src/main/java/com.qato/utils/ClickhouseUtils.java`**:
+    -   The `readRows` function now handles non-`SELECT` queries by delegating to the `executeStatement` function.
+    -   A default `LIMIT` of 200 is now added to `SELECT` queries that do not have one.
