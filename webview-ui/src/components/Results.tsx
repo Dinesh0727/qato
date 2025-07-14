@@ -10,8 +10,8 @@ import { CheckCircle, AlertCircle, XCircle, Clock, ChevronDown, ChevronRight } f
 
 interface ResultsProps {
   executionLogs: ExecutionLog[];
-  testResults: { [key: string]: any } | null; // For the raw summary
-  stepResults: { stepName: string; type: string; result: any }[]; // For step-by-step results
+  testResults: { [key: string]: any } | null;
+  stepResults: { stepName: string; type: string; result: any; executionTime?: number }[];
 }
 
 export const Results = ({ executionLogs, testResults, stepResults }: ResultsProps) => {
@@ -29,24 +29,17 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
         return { error: "Invalid JSON format", content: result };
       }
     }
-    return result; // It's already an object
+    return result;
   };
-  
-  const apiResults = useMemo(() => stepResults.filter(r => r.type === 'api'), [stepResults]); 
-  const dbResults = useMemo(() => stepResults.filter(r => ['sql', 'redis', 'clickhouse'].includes(r.type)), [stepResults]);
 
-  // useEffect(() => {
-  //   console.log("Reloaded results");
-  //   }, stepResults);
+  const apiResults = useMemo(() => stepResults.filter(r => r.type === 'api'), [stepResults]);
+  const dbResults = useMemo(() => stepResults.filter(r => ['sql', 'redis', 'clickhouse'].includes(r.type)), [stepResults]);
 
   const toggleApiStep = (stepName: string) => {
     setExpandedApiSteps(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(stepName)) {
-        newSet.delete(stepName);
-      } else {
-        newSet.add(stepName);
-      }
+      if (newSet.has(stepName)) newSet.delete(stepName);
+      else newSet.add(stepName);
       return newSet;
     });
   };
@@ -54,11 +47,8 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
   const toggleDbStep = (stepName: string) => {
     setExpandedDbSteps(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(stepName)) {
-        newSet.delete(stepName);
-      } else {
-        newSet.add(stepName);
-      }
+      if (newSet.has(stepName)) newSet.delete(stepName);
+      else newSet.add(stepName);
       return newSet;
     });
   };
@@ -168,70 +158,66 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
               ) : (
                 <div className="space-y-4">
                   {apiResults.map((apiRes, index) => {
-                    // FIX: Parse the result defensively before trying to access its properties
                     const parsedResult = getParsedResult(apiRes.result);
-
-                    // A check to ensure we have a valid object to render
                     if (!parsedResult || typeof parsedResult !== 'object' || parsedResult.error) {
-                        return (
-                            <Card key={index} className="bg-card border-destructive p-4">
-                                <p className='font-medium text-destructive'>Error processing response for: {apiRes.stepName}</p>
-                                <pre className="bg-muted p-2 mt-2 rounded text-sm overflow-x-auto">
-                                    {JSON.stringify(apiRes.result, null, 2)}
-                                </pre>
-                            </Card>
-                        )
+                      return (
+                        <Card key={index} className="bg-card border-destructive p-4">
+                          <p className="font-medium text-destructive">Error processing response for: {apiRes.stepName}</p>
+                          <pre className="bg-muted p-2 mt-2 rounded text-sm overflow-x-auto">
+                            {JSON.stringify(apiRes.result, null, 2)}
+                          </pre>
+                        </Card>
+                      );
                     }
 
                     return (
-                        <Card key={index} className="bg-card border-border p-4">
+                      <Card key={index} className="bg-card border-border p-4">
                         <Button
-                            variant="ghost"
-                            onClick={() => toggleApiStep(apiRes.stepName)}
-                            className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                          variant="ghost"
+                          onClick={() => toggleApiStep(apiRes.stepName)}
+                          className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
                         >
-                            {expandedApiSteps.has(apiRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                            <span className="font-medium">API Response: {apiRes.stepName}</span>
+                          {expandedApiSteps.has(apiRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <span className="font-medium">API Response: {apiRes.stepName}</span>
                         </Button>
 
                         {expandedApiSteps.has(apiRes.stepName) && (
-                            <div className="space-y-4 mt-2">
-                            {/* Status */}
+                          <div className="space-y-4 mt-2">
+                            {/* Status and Execution Time */}
                             <div className="flex items-center justify-between mb-2">
-                                <h3 className="font-medium text-foreground">Status</h3>
-                                <span className="text-sm text-muted-foreground">{parsedResult.time}ms</span>
+                              <h3 className="font-medium text-foreground">Status</h3>
+                              <span className="text-sm text-muted-foreground">{apiRes.executionTime ?? 'N/A'}ms</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Badge className={`${getStatusColor(parsedResult.status)} bg-transparent border-current`}>
+                              <Badge className={`${getStatusColor(parsedResult.status)} bg-transparent border-current`}>
                                 {parsedResult.status}
-                                </Badge>
-                                <span className="text-foreground">{parsedResult.statusText || ''}</span>
+                              </Badge>
+                              <span className="text-foreground">{parsedResult.statusText || ''}</span>
                             </div>
 
                             {/* Headers */}
                             <h3 className="font-medium text-foreground">Headers</h3>
                             <div className="space-y-1">
-                                {Object.entries(parsedResult.headers || {}).map(([key, value]) => (
+                              {Object.entries(parsedResult.headers || {}).map(([key, value]) => (
                                 <div key={key} className="flex items-center gap-2 text-sm">
-                                    <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
-                                    <span className="text-foreground">{String(value)}</span>
+                                  <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
+                                  <span className="text-foreground">{String(value)}</span>
                                 </div>
-                                ))}
+                              ))}
                             </div>
 
-                            
                             {/* Body */}
                             <h3 className="font-medium text-foreground mb-2">Body</h3>
                             <div className="max-h-60 overflow-y-auto">
-                                <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                                    {JSON.stringify(apiRes.result, null, 2)}
-                                </pre>
+                              <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                                {JSON.stringify(parsedResult, null, 2)}
+                              </pre>
                             </div>
-                            </div>
+                          </div>
                         )}
-                        </Card>
+                      </Card>
                     );
-                })}
+                  })}
                 </div>
               )}
             </div>
@@ -250,25 +236,23 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
               ) : (
                 <div className="space-y-4">
                   {dbResults.map((dbRes, index) => {
-                    // FIX: Also apply defensive parsing here
                     const parsedResult = getParsedResult(dbRes.result);
-
                     return (
-                        <Card key={index} className="bg-card border-border p-4">
+                      <Card key={index} className="bg-card border-border p-4">
                         <Button
-                            variant="ghost"
-                            onClick={() => toggleDbStep(dbRes.stepName)}
-                            className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                          variant="ghost"
+                          onClick={() => toggleDbStep(dbRes.stepName)}
+                          className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
                         >
-                            {expandedDbSteps.has(dbRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                            <span className="font-medium">DB Result: {dbRes.stepName} ({dbRes.type.toUpperCase()})</span>
+                          {expandedDbSteps.has(dbRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <span className="font-medium">DB Result: {dbRes.stepName} ({dbRes.type.toUpperCase()}) - {dbRes.executionTime ?? 'N/A'}ms</span>
                         </Button>
                         {expandedDbSteps.has(dbRes.stepName) && (
-                            <div className="mt-2">
+                          <div className="mt-2">
                             <DynamicTable data={Array.isArray(parsedResult) ? parsedResult : [parsedResult]} />
-                            </div>
+                          </div>
                         )}
-                        </Card>
+                      </Card>
                     );
                   })}
                 </div>

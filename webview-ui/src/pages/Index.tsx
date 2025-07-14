@@ -32,6 +32,10 @@ const generateGherkin = (testCase: TestCase): string => {
     const sanitizedStepName = step.name.replace(/'/g, "\\'");
     gherkin += `Scenario: ${sanitizedStepName}\n`;
 
+    // Add timing instrumentation
+    gherkin += `  * def System = Java.type('java.lang.System')\n`;
+    gherkin += `  * def startTime = System.currentTimeMillis()\n`;
+
     switch (step.type) {
       case 'sql':
       case 'redis':
@@ -51,7 +55,6 @@ const generateGherkin = (testCase: TestCase): string => {
             const url = new URL(apiConfig.url);
             const baseUrl = `${url.protocol}//${url.host}${url.pathname}`;
             gherkin += `  Given url '${baseUrl}'\n`;
-            
             url.searchParams.forEach((value, key) => {
               const escapedValue = value.replace(/'/g, "\\'");
               gherkin += `  And param ${key} = '${escapedValue}'\n`;
@@ -75,10 +78,12 @@ const generateGherkin = (testCase: TestCase): string => {
       }
     }
 
-    // Ensure proper JSON serialization
+    // Calculate execution time and include in payload
+    gherkin += `  * def endTime = System.currentTimeMillis()\n`;
+    gherkin += `  * def executionTime = endTime - startTime\n`;
     gherkin += `  Then status 200\n`;
     gherkin += `  * def resultData = response\n`;
-    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)' }\n`;
+    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
     gherkin += `  * print '---QATO_RESULT_START---'\n`;
     gherkin += `  * print karate.toJson(qatoPayload)\n`;
     gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
