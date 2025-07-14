@@ -32,9 +32,11 @@ const generateGherkin = (testCase: TestCase): string => {
     const sanitizedStepName = step.name.replace(/'/g, "\\'");
     gherkin += `Scenario: ${sanitizedStepName}\n`;
 
-    // Add timing instrumentation
-    gherkin += `  * def System = Java.type('java.lang.System')\n`;
-    gherkin += `  * def startTime = System.currentTimeMillis()\n`;
+    // Add timing instrumentation for API calls, DB calls are timed by the backend
+    if (step.type === 'api') {
+        gherkin += `  * def System = Java.type('java.lang.System')\n`;
+        gherkin += `  * def startTime = System.currentTimeMillis()\n`;
+    }
 
     switch (step.type) {
       case 'sql':
@@ -78,11 +80,22 @@ const generateGherkin = (testCase: TestCase): string => {
       }
     }
 
-    // Calculate execution time and include in payload
-    gherkin += `  * def endTime = System.currentTimeMillis()\n`;
-    gherkin += `  * def executionTime = endTime - startTime\n`;
+    // Handle response and execution time
     gherkin += `  Then status 200\n`;
-    gherkin += `  * def resultData = response\n`;
+    if (step.type === 'api') {
+        gherkin += `  * def endTime = System.currentTimeMillis()\n`;
+        gherkin += `  * def executionTime = endTime - startTime\n`;
+        gherkin += `  * def resultData = response\n`;
+    } else {
+        gherkin += `  * def responseData = response\n`;
+        gherkin += `  * print 'Just response printing'\n`;
+        gherkin += `  * print responseData\n`;
+        gherkin += `  * def executionTime = responseData.executionTime\n`;
+        gherkin += `  * print 'Execution Time: '\n`;
+        gherkin += `  * print executionTime\n`;
+        gherkin += `  * def resultData = responseData.result\n`;
+    }
+
     gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
     gherkin += `  * print '---QATO_RESULT_START---'\n`;
     gherkin += `  * print karate.toJson(qatoPayload)\n`;
