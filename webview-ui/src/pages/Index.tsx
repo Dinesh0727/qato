@@ -25,86 +25,82 @@ interface KarateResult {
 // src/components/Index.tsx
 
 const generateGherkin = (testCase: TestCase): string => {
-  console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
-  let gherkin = `Feature: ${testCase.name}\n\n`;
+      console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
+      let gherkin = `Feature: ${testCase.name}\n\n`;
 
-  testCase.steps.forEach(step => {
-    const sanitizedStepName = step.name.replace(/'/g, "\\'");
-    gherkin += `Scenario: ${sanitizedStepName}\n`;
+      testCase.steps.forEach(step => {
+        const sanitizedStepName = step.name.replace(/'/g, "\\'");
+        gherkin += `Scenario: ${sanitizedStepName}\n`;
 
-    // Add timing instrumentation for API calls, DB calls are timed by the backend
-    if (step.type === 'api') {
-        gherkin += `  * def System = Java.type('java.lang.System')\n`;
-        gherkin += `  * def startTime = System.currentTimeMillis()\n`;
-    }
+        if (step.type === 'api') {
+            gherkin += `  * def System = Java.type('java.lang.System')\n`;
+            gherkin += `  * def startTime = System.currentTimeMillis()\n`;
+        }
 
-    switch (step.type) {
-      case 'sql':
-      case 'redis':
-      case 'clickhouse': {
-        const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
-        const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
-        const requestBody = { query: query, type: step.type };
-        gherkin += `  Given url 'http://localhost:8080/query'\n`;
-        gherkin += `  And request ${JSON.stringify(requestBody)}\n`;
-        gherkin += `  When method post\n`;
-        break;
-      }
-      case 'api': {
-        const apiConfig = step.config as ApiStepConfig;
-        if (apiConfig.method.toUpperCase() === 'GET' && apiConfig.url.includes('?')) {
-          try {
-            const url = new URL(apiConfig.url);
-            const baseUrl = `${url.protocol}//${url.host}${url.pathname}`;
-            gherkin += `  Given url '${baseUrl}'\n`;
-            url.searchParams.forEach((value, key) => {
-              const escapedValue = value.replace(/'/g, "\\'");
-              gherkin += `  And param ${key} = '${escapedValue}'\n`;
-            });
-          } catch (e) {
-            console.error("Invalid URL for GET request, falling back to old behavior:", apiConfig.url, e);
-            gherkin += `  Given url '${apiConfig.url}'\n`;
+        switch (step.type) {
+          case 'sql':
+          case 'redis':
+          case 'clickhouse': {
+            const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
+            const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
+            const requestBody = { query: query, type: step.type };
+            gherkin += `  Given url 'http://localhost:8080/query'\n`;
+            gherkin += `  And request ${JSON.stringify(requestBody)}\n`;
+            gherkin += `  When method post\n`;
+            break;
           }
+          case 'api': {
+            const apiConfig = step.config as ApiStepConfig;
+            // URL without query params
+            gherkin += `  Given url '${apiConfig.url.split('?')[0]}'\n`;
+
+            // Handle query params from a dedicated object
+            if (apiConfig.params && Object.keys(apiConfig.params).length > 0) {
+                gherkin += `  And params ${JSON.stringify(apiConfig.params)}\n`;
+            }
+
+            // Handle headers
+            if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
+                gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
+            }
+
+            // Handle body
+            if (apiConfig.body) {
+                // Using a variable for the request body is more robust for complex JSON.
+                gherkin += `  * def requestBody =\n`
+                gherkin += `    """\n${apiConfig.body}\n"""\n`;
+                gherkin += `  And request requestBody\n`;
+            }
+            gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
+            break;
+          }
+        }
+
+        // This is a simplification. Karate will fail if the status is not 2xx/3xx.
+        // The user can add explicit status checks in the UI later if needed.
+        gherkin += `  Then status 200\n`;
+
+        if (step.type === 'api') {
+            gherkin += `  * def endTime = System.currentTimeMillis()\n`;
+            gherkin += `  * def executionTime = endTime - startTime\n`;
+            // Capture a comprehensive response object for the UI
+            gherkin += `  * def resultData = { body: '#(response)', headers: '#(responseHeaders)', status: '#(responseStatus)' }\n`;
         } else {
-          gherkin += `  Given url '${apiConfig.url}'\n`;
+            gherkin += `  * def responseData = response\n`;
+            // The DB service response has a different structure
+            gherkin += `  * def executionTime = responseData.executionTime\n`;
+            gherkin += `  * def resultData = responseData.result\n`;
         }
 
-        if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
-          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
-        }
-        if (apiConfig.body) {
-          gherkin += `  And request """\n${apiConfig.body}\n"""\n`;
-        }
-        gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
-        break;
-      }
-    }
+        gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
+        gherkin += `  * print '---QATO_RESULT_START---'\n`;
+        gherkin += `  * print karate.toJson(qatoPayload)\n`;
+        gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
+      });
 
-    // Handle response and execution time
-    gherkin += `  Then status 200\n`;
-    if (step.type === 'api') {
-        gherkin += `  * def endTime = System.currentTimeMillis()\n`;
-        gherkin += `  * def executionTime = endTime - startTime\n`;
-        gherkin += `  * def resultData = response\n`;
-    } else {
-        gherkin += `  * def responseData = response\n`;
-        gherkin += `  * print 'Just response printing'\n`;
-        gherkin += `  * print responseData\n`;
-        gherkin += `  * def executionTime = responseData.executionTime\n`;
-        gherkin += `  * print 'Execution Time: '\n`;
-        gherkin += `  * print executionTime\n`;
-        gherkin += `  * def resultData = responseData.result\n`;
-    }
-
-    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
-    gherkin += `  * print '---QATO_RESULT_START---'\n`;
-    gherkin += `  * print karate.toJson(qatoPayload)\n`;
-    gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
-  });
-
-  console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
-  return gherkin;
-};
+      console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
+      return gherkin;
+    };
 
 const Index = () => {
   const [folders, setFolders] = useState<Folder[]>([
@@ -199,7 +195,8 @@ const Index = () => {
       collections: [],
     };
     setFolders(prev => [...prev, newFolder]);
-  }, []);
+    toast({ title: "Folder Created", description: `Folder "${name}" has been added.` });
+  }, [toast]);
 
   const addCollection = useCallback((folderId: string, name: string) => {
     setFolders(prevFolders => prevFolders.map(folder => {
@@ -217,7 +214,8 @@ const Index = () => {
       }
       return folder;
     }));
-  }, []);
+    toast({ title: "Collection Created", description: `Collection "${name}" has been added.` });
+  }, [toast]);
 
   const addTestCase = useCallback((collectionId: string, name: string) => {
     setFolders(prevFolders => prevFolders.map(folder => {
@@ -242,13 +240,55 @@ const Index = () => {
         }),
       };
     }));
-  }, []);
+    toast({ title: "Test Case Created", description: `Test case "${name}" has been added.` });
+  }, [toast]);
+
+  const handleUpdateTestCase = (updatedTestCase: TestCase) => {
+    setFolders(prevFolders =>
+      prevFolders.map(folder => ({
+        ...folder,
+        collections: folder.collections.map(collection => {
+          if (collection.id === updatedTestCase.collectionId) {
+            return {
+              ...collection,
+              testCases: collection.testCases.map(tc =>
+                tc.id === updatedTestCase.id ? updatedTestCase : tc
+              ),
+            };
+          }
+          return collection;
+        }),
+      }))
+    );
+    setSelectedTestCase(updatedTestCase);
+  };
 
   const handleMessage = useCallback((event: MessageEvent) => {
     const message = event.data as { command: string; payload: any };
     console.log('[DEBUG:Index.tsx] Received message from extension:', message);
 
     switch (message.command) {
+      case 'inputBoxResult': {
+        const { value, context } = message.payload;
+        if (!value) return; 
+
+        switch (context.type) {
+          case 'addFolder':
+            addFolder(value);
+            break;
+          case 'addCollection':
+            if (context.folderId) {
+              addCollection(context.folderId, value);
+            }
+            break;
+          case 'addTestCase':
+            if (context.collectionId) {
+              addTestCase(context.collectionId, value);
+            }
+            break;
+        }
+        break;
+      }
       case 'testResult': {
         setIsExecuting(false);
         if (!message.payload) {
@@ -279,14 +319,14 @@ const Index = () => {
         break;
       }
     }
-  }, [toast]); // Dependencies for the callback
+  }, [toast, addFolder, addCollection, addTestCase]);
 
   useEffect(() => {
     window.addEventListener('message', handleMessage);
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [handleMessage]); // Effect depends on the memoized callback
+  }, [handleMessage]);
 
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
@@ -294,7 +334,7 @@ const Index = () => {
     setIsExecuting(true);
     setTestResults(null);
     setStepResults([]);
-    setExecutionLogs([]); // Clear previous logs
+    setExecutionLogs([]);
 
     toast({
       title: "Test Run Started",
@@ -318,8 +358,6 @@ const Index = () => {
     }
   };
 
-  
-
   return (
     <div className="min-h-screen bg-background text-foreground flex theme-transition">
       <ThemeToggle />
@@ -329,21 +367,21 @@ const Index = () => {
         selectedTestCase={selectedTestCase}
         onSelectTestCase={setSelectedTestCase}
         vscode={vscode}
-        folders={folders} // Assuming 'folders' state exists here
+        folders={folders}
       />
       
       <div className="flex-1 flex flex-col">
         <Editor
           testCase={selectedTestCase}
-          onUpdateTestCase={setSelectedTestCase}
+          onUpdateTestCase={handleUpdateTestCase}
           onRunTestCase={handleRunTestCase}
           isExecuting={isExecuting}
         />
         
         <Results
           executionLogs={executionLogs}
-          testResults={testResults} // Pass summary results
-          stepResults={stepResults} // Pass step-by-step results
+          testResults={testResults}
+          stepResults={stepResults}
         />
       </div>
     </div>

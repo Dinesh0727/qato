@@ -210,7 +210,7 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
                             <h3 className="font-medium text-foreground mb-2">Body</h3>
                             <div className="max-h-60 overflow-y-auto">
                               <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                                {JSON.stringify(parsedResult, null, 2)}
+                                {JSON.stringify(parsedResult.body, null, 2)}
                               </pre>
                             </div>
                           </div>
