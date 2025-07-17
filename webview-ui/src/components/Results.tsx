@@ -17,6 +17,9 @@ interface ResultsProps {
 export const Results = ({ executionLogs, testResults, stepResults }: ResultsProps) => {
   const [expandedApiSteps, setExpandedApiSteps] = useState<Set<string>>(new Set());
   const [expandedDbSteps, setExpandedDbSteps] = useState<Set<string>>(new Set());
+  // Add state for headers/body collapse per step
+  const [collapsedHeaders, setCollapsedHeaders] = useState<{ [stepName: string]: boolean }>({});
+  const [collapsedBody, setCollapsedBody] = useState<{ [stepName: string]: boolean }>({});
 
   console.log("[DEBUG:Results.tsx] Received stepResults prop:", stepResults);
 
@@ -159,10 +162,11 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
                 <div className="space-y-4">
                   {apiResults.map((apiRes, index) => {
                     const parsedResult = getParsedResult(apiRes.result);
+                    const stepName = apiRes.stepName;
                     if (!parsedResult || typeof parsedResult !== 'object' || parsedResult.error) {
                       return (
                         <Card key={index} className="bg-card border-destructive p-4">
-                          <p className="font-medium text-destructive">Error processing response for: {apiRes.stepName}</p>
+                          <p className="font-medium text-destructive">Error processing response for: {stepName}</p>
                           <pre className="bg-muted p-2 mt-2 rounded text-sm overflow-x-auto">
                             {JSON.stringify(apiRes.result, null, 2)}
                           </pre>
@@ -170,18 +174,25 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
                       );
                     }
 
+                    // Default collapsed state: headers collapsed, body expanded
+                    const isHeadersCollapsed = collapsedHeaders[stepName] ?? true;
+                    const isBodyCollapsed = collapsedBody[stepName] ?? false;
+
+                    const toggleHeaders = () => setCollapsedHeaders(prev => ({ ...prev, [stepName]: !isHeadersCollapsed }));
+                    const toggleBody = () => setCollapsedBody(prev => ({ ...prev, [stepName]: !isBodyCollapsed }));
+
                     return (
                       <Card key={index} className="bg-card border-border p-4">
                         <Button
                           variant="ghost"
-                          onClick={() => toggleApiStep(apiRes.stepName)}
+                          onClick={() => toggleApiStep(stepName)}
                           className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
                         >
-                          {expandedApiSteps.has(apiRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                          <span className="font-medium">API Response: {apiRes.stepName}</span>
+                          {expandedApiSteps.has(stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <span className="font-medium">API Response: {stepName}</span>
                         </Button>
 
-                        {expandedApiSteps.has(apiRes.stepName) && (
+                        {expandedApiSteps.has(stepName) && (
                           <div className="space-y-4 mt-2">
                             {/* Status and Execution Time */}
                             <div className="flex items-center justify-between mb-2">
@@ -195,23 +206,47 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
                               <span className="text-foreground">{parsedResult.statusText || ''}</span>
                             </div>
 
-                            {/* Headers */}
-                            <h3 className="font-medium text-foreground">Headers</h3>
-                            <div className="space-y-1">
-                              {Object.entries(parsedResult.headers || {}).map(([key, value]) => (
-                                <div key={key} className="flex items-center gap-2 text-sm">
-                                  <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
-                                  <span className="text-foreground">{String(value)}</span>
+                            {/* Collapsible Headers */}
+                            <div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={toggleHeaders}
+                                className="flex items-center gap-2 mb-1 text-foreground hover:text-foreground/80"
+                              >
+                                {isHeadersCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                <span className="font-medium">Headers</span>
+                              </Button>
+                              {!isHeadersCollapsed && (
+                                <div className="space-y-1 ml-6">
+                                  {Object.entries(parsedResult.headers || {}).map(([key, value]) => (
+                                    <div key={key} className="flex items-center gap-2 text-sm">
+                                      <span className="text-blue-600 dark:text-blue-400 font-mono">{key}:</span>
+                                      <span className="text-foreground">{String(value)}</span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
+                              )}
                             </div>
 
-                            {/* Body */}
-                            <h3 className="font-medium text-foreground mb-2">Body</h3>
-                            <div className="max-h-60 overflow-y-auto">
-                              <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
-                                {JSON.stringify(parsedResult.body, null, 2)}
-                              </pre>
+                            {/* Collapsible Body */}
+                            <div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={toggleBody}
+                                className="flex items-center gap-2 mb-1 text-foreground hover:text-foreground/80"
+                              >
+                                {isBodyCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                <span className="font-medium">Body</span>
+                              </Button>
+                              {!isBodyCollapsed && (
+                                <div className="max-h-60 overflow-y-auto ml-6">
+                                  <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                                    {JSON.stringify(parsedResult.body, null, 2)}
+                                  </pre>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}

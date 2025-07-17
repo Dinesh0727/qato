@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { GripVertical, Trash2, Database, Zap, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
+import { ApiHeadersEditor } from './ApiHeadersEditor';
 
 interface StepCardProps {
   step: TestStep;
@@ -106,6 +107,17 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
 
       case 'api':
         const apiConfig = step.config as ApiStepConfig;
+        // Add ref for auto-resizing textarea
+        const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+        const handleBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+          onUpdate({ config: { ...apiConfig, body: e.target.value } });
+          // Auto-resize logic
+          const textarea = bodyTextareaRef.current;
+          if (textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 600) + 'px'; // max 600px
+          }
+        };
         return (
           <div className="space-y-3">
             <div className="flex gap-2">
@@ -143,29 +155,21 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
               </TabsList>
               
               <TabsContent value="headers" className="mt-3">
-                <Textarea
-                  value={JSON.stringify(apiConfig.headers, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const headers = JSON.parse(e.target.value);
-                      onUpdate({ config: { ...apiConfig, headers } });
-                    } catch (e) {
-                      // Invalid JSON, keep current value
-                    }
-                  }}
-                  placeholder='{"Content-Type": "application/json"}'
-                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[80px] rounded-lg"
+                <ApiHeadersEditor
+                  headers={apiConfig.headers || {}}
+                  onChange={headers => onUpdate({ config: { ...apiConfig, headers } })}
                 />
               </TabsContent>
               
               <TabsContent value="body" className="mt-3">
                 <Textarea
+                  ref={bodyTextareaRef}
                   value={apiConfig.body || ''}
-                  onChange={(e) => onUpdate({ 
-                    config: { ...apiConfig, body: e.target.value } 
-                  })}
+                  onChange={handleBodyChange}
                   placeholder='{"key": "value"}'
-                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[80px] rounded-lg"
+                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[120px] rounded-lg"
+                  style={{ lineHeight: '1.5', overflow: 'auto' }}
+                  rows={6}
                 />
               </TabsContent>
             </Tabs>

@@ -467,3 +467,20 @@ Original Phases to build this extension:
 -   **`src/main/java/com.qato/utils/ClickhouseUtils.java`**:
     -   The `readRows` function now handles non-`SELECT` queries by delegating to the `executeStatement` function.
     -   A default `LIMIT` of 200 is now added to `SELECT` queries that do not have one.
+
+
+## Work Progress (July 12-17, 2025)
+
+### UI (webview-ui)
+-   Included the execution time for each step by changing the gherkin logic.
+-   Moved the execution time logic for DB calls to backend.
+-   Corrected API parsing by Karate by replacing the gherkin logic
+
+### VS Code Extension (src)
+-   **`src/extension.ts`**:
+    -   No changes
+
+### DB-Access Microservice (java-utils/qa-tool-orchaestrator)
+-   Changed the read rows to execute and display the whole list of rows fetched.
+
+
