@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
 import { Results } from '@/components/Results';
@@ -125,6 +125,7 @@ const Index = () => {
                   name: 'Check DB Connection',
                   type: 'sql',
                   delayMs: 0,
+                  order: 0,
                   config: { query: 'SELECT 1;' }
                 },
                 {
@@ -132,6 +133,7 @@ const Index = () => {
                   name: 'Clear Cache',
                   type: 'redis',
                   delayMs: 100,
+                  order: 1,
                   config: { command: 'FLUSHDB' }
                 },
                 {
@@ -139,6 +141,7 @@ const Index = () => {
                   name: 'Create User API',
                   type: 'api',
                   delayMs: 500,
+                  order: 2,
                   config: {
                     method: 'POST',
                     url: 'https://api.example.com/users',
@@ -187,6 +190,7 @@ const Index = () => {
   const [stepResults, setStepResults] = useState<any[]>([]); // New state for parsed results
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
+  const runStartTime = useRef<number | null>(null);
 
   const addFolder = useCallback((name: string) => {
     const newFolder: Folder = {
@@ -296,7 +300,12 @@ const Index = () => {
             toast({ title: "Error", description: "Received empty test results.", variant: "destructive" });
             return;
         }
-        
+        // Log execution time
+        if (runStartTime.current) {
+          const duration = Date.now() - runStartTime.current;
+          console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
+          runStartTime.current = null;
+        }
         const { parsedResults, ...karateSummary } = message.payload;
         setTestResults(karateSummary);
         setStepResults(parsedResults || []);
@@ -335,6 +344,9 @@ const Index = () => {
     setTestResults(null);
     setStepResults([]);
     setExecutionLogs([]);
+
+    // Record start time
+    runStartTime.current = Date.now();
 
     toast({
       title: "Test Run Started",
