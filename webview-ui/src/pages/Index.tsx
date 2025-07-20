@@ -25,82 +25,115 @@ interface KarateResult {
 // src/components/Index.tsx
 
 const generateGherkin = (testCase: TestCase): string => {
-      console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
-      let gherkin = `Feature: ${testCase.name}\n\n`;
+  console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
+  let gherkin = `Feature: ${testCase.name}\n\n`;
 
-      testCase.steps.forEach(step => {
-        const sanitizedStepName = step.name.replace(/'/g, "\\'");
-        gherkin += `Scenario: ${sanitizedStepName}\n`;
+  // Track extracted variables and missing variable flag
+  const extractedVars: Record<string, boolean> = {};
+  let missingVar = false;
 
-        if (step.type === 'api') {
-            gherkin += `  * def System = Java.type('java.lang.System')\n`;
-            gherkin += `  * def startTime = System.currentTimeMillis()\n`;
-        }
+  testCase.steps.forEach((step, idx) => {
+    const sanitizedStepName = step.name.replace(/'/g, "\\'");
+    gherkin += `Scenario: ${sanitizedStepName}\n`;
 
-        switch (step.type) {
-          case 'sql':
-          case 'redis':
-          case 'clickhouse': {
-            const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
-            const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
-            const requestBody = { query: query, type: step.type };
-            gherkin += `  Given url 'http://localhost:8080/query'\n`;
-            gherkin += `  And request ${JSON.stringify(requestBody)}\n`;
-            gherkin += `  When method post\n`;
-            break;
+    // If a previous variable was missing, skip this step and log
+    if (missingVar && idx > 0) {
+      gherkin += `  * print 'Step skipped due to missing required variable.'\n\n`;
+      return;
+    }
+
+    if (step.type === 'api') {
+      gherkin += `  * def System = Java.type('java.lang.System')\n`;
+      gherkin += `  * def startTime = System.currentTimeMillis()\n`;
+    }
+
+    switch (step.type) {
+      case 'sql':
+      case 'redis':
+      case 'clickhouse': {
+        let dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
+        let query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
+        // Substitute variables in query for Karate string interpolation
+        let karateQuery = query.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
+          console.log('[DEBUG:Index.tsx] Substituting variable:', varName);
+          if (extractedVars[varName]) {
+            console.log('[DEBUG:Index.tsx] Extracted var:', extractedVars[varName]);
+            return '\'#(' + varName + ')\'';
+          } else {
+            missingVar = true;
+            gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
+            return `MISSING_VAR_${varName}`;
           }
-          case 'api': {
-            const apiConfig = step.config as ApiStepConfig;
-            // URL without query params
-            gherkin += `  Given url '${apiConfig.url.split('?')[0]}'\n`;
-
-            // Handle query params from a dedicated object
-            if (apiConfig.params && Object.keys(apiConfig.params).length > 0) {
-                gherkin += `  And params ${JSON.stringify(apiConfig.params)}\n`;
-            }
-
-            // Handle headers
-            if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
-                gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
-            }
-
-            // Handle body
-            if (apiConfig.body) {
-                // Using a variable for the request body is more robust for complex JSON.
-                gherkin += `  * def requestBody =\n`
-                gherkin += `    """\n${apiConfig.body}\n"""\n`;
-                gherkin += `  And request requestBody\n`;
-            }
-            gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
-            break;
-          }
-        }
-
-        // This is a simplification. Karate will fail if the status is not 2xx/3xx.
-        // The user can add explicit status checks in the UI later if needed.
-        gherkin += `  Then status 200\n`;
-
-        if (step.type === 'api') {
-            gherkin += `  * def endTime = System.currentTimeMillis()\n`;
-            gherkin += `  * def executionTime = endTime - startTime\n`;
-            // Capture a comprehensive response object for the UI
-            gherkin += `  * def resultData = { body: '#(response)', headers: '#(responseHeaders)', status: '#(responseStatus)' }\n`;
+        });
+        // If interpolation happened, assign to Karate variable
+        if (/\$\{[a-zA-Z0-9_]+\}\$/.test(query)) {
+          gherkin += `  * def query = "${karateQuery}"\n`;
+          gherkin += `  * print 'query constructed: ' + query\n`;
+          gherkin += `  Given url 'http://localhost:8080/query'\n`;
+          gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
         } else {
-            gherkin += `  * def responseData = response\n`;
-            // The DB service response has a different structure
-            gherkin += `  * def executionTime = responseData.executionTime\n`;
-            gherkin += `  * def resultData = responseData.result\n`;
+          gherkin += `  Given url 'http://localhost:8080/query'\n`;
+          gherkin += `  And request { query: "${karateQuery}", type: "${step.type}" }\n`;
         }
+        gherkin += `  When method post\n`;
+        break;
+      }
+      case 'api': {
+        const apiConfig = step.config as ApiStepConfig;
+        gherkin += `  Given url '${apiConfig.url.split('?')[0]}'\n`;
+        // Handle headers
+        if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
+          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
+        }
+        // Handle body
+        if (apiConfig.body) {
+          let body = apiConfig.body.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
+            if (extractedVars[varName]) {
+              return `#(${varName})`;
+            } else {
+              missingVar = true;
+              gherkin += `  * print 'Required variable "${varName}" is missing in body. Skipping this and subsequent steps.'\n`;
+              return `MISSING_VAR_${varName}`;
+            }
+          });
+          gherkin += `  * def requestBody =\n`;
+          gherkin += `    """\n${body}\n"""\n`;
+          gherkin += `  And request requestBody\n`;
+        }
+        gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
+        gherkin += `  Then status 200\n`;
+        // Extract variables if defined
+        if (apiConfig.extractVars && apiConfig.extractVars.length > 0) {
+          apiConfig.extractVars.forEach(({ name, path }) => {
+            if (name && path) {
+              gherkin += `  * def ${name} = karate.jsonPath(response, '${path}')\n`;
+              extractedVars[name] = true;
+            } else {
+              gherkin += `  * print 'Extraction variable name or path missing. Skipping further steps.'\n`;
+              missingVar = true;
+            }
+          });
+        }
+        gherkin += `  * def endTime = System.currentTimeMillis()\n`;
+        gherkin += `  * def executionTime = endTime - startTime\n`;
+        gherkin += `  * def resultData = { body: '#(response)', headers: '#(responseHeaders)', status: '#(responseStatus)' }\n`;
+        break;
+      }
+    }
+    if (step.type !== 'api') {
+      gherkin += `  * def responseData = response\n`;
+      gherkin += `  * def executionTime = responseData.executionTime\n`;
+      gherkin += `  * def resultData = responseData.result\n`;
+    }
+    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
+    gherkin += `  * print '---QATO_RESULT_START---'\n`;
+    gherkin += `  * print karate.toJson(qatoPayload)\n`;
+    gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
+  });
 
-        gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
-        gherkin += `  * print '---QATO_RESULT_START---'\n`;
-        gherkin += `  * print karate.toJson(qatoPayload)\n`;
-        gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
-      });
-
-      console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
-      return gherkin;
-    };
+  console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
+  return gherkin;
+};
 
 const Index = () => {
   const [folders, setFolders] = useState<Folder[]>([

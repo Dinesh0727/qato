@@ -173,6 +173,58 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
                 />
               </TabsContent>
             </Tabs>
+
+            {/* Variable Extraction UI */}
+            <div className="mt-4">
+              <label className="text-sm text-muted-foreground mb-1 block font-semibold">Extract Variables from Response (JSONPath)</label>
+              {(apiConfig.extractVars || []).map((v, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <Input
+                    value={v.name}
+                    onChange={e => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], name: e.target.value };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    placeholder="Variable Name (e.g. mid)"
+                    className="w-1/3"
+                  />
+                  <Input
+                    value={v.path}
+                    onChange={e => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], path: e.target.value };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    placeholder="JSONPath (e.g. $.mid)"
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars.splice(i, 1);
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    className="ml-1"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const newVars = [...(apiConfig.extractVars || []), { name: '', path: '' }];
+                  onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                }}
+                className="mt-1"
+              >
+                + Add Variable
+              </Button>
+            </div>
           </div>
         );
 
