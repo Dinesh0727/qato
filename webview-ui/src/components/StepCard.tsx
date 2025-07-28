@@ -187,7 +187,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
                       onUpdate({ config: { ...apiConfig, extractVars: newVars } });
                     }}
                     placeholder="Variable Name (e.g. mid)"
-                    className="w-1/3"
+                    className="w-1/4"
                   />
                   <Input
                     value={v.path}
@@ -199,6 +199,24 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
                     placeholder="JSONPath (e.g. $.mid)"
                     className="flex-1"
                   />
+                  <Select
+                    value={v.type || 'string'}
+                    onValueChange={value => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], type: value as any };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                  >
+                    <SelectTrigger className="w-28 bg-muted border-border rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-muted border-border rounded-lg">
+                      <SelectItem value="string">String</SelectItem>
+                      <SelectItem value="integer">Integer</SelectItem>
+                      <SelectItem value="float">Float</SelectItem>
+                      <SelectItem value="boolean">Boolean</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Button
                     variant="destructive"
                     size="icon"
@@ -253,7 +271,6 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
       className={`relative p-6 rounded-2xl shadow-xl border-2 transition-all duration-300
         ${getStepColor()} border-opacity-30
         bg-gradient-to-br from-background via-${getStepColor().replace('bg-', '')}/10 to-background
-        hover:scale-[1.02] hover:shadow-2xl
       `}
     >
       {/* Header */}
@@ -294,8 +311,15 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
         <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
         <Input
           type="number"
-          value={step.delayMs}
-          onChange={(e) => onUpdate({ delayMs: parseInt(e.target.value) || 0 })}
+          value={step.delayMs === 0 ? '' : step.delayMs}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === '' || isNaN(Number(val))) {
+              onUpdate({ delayMs: 0 });
+            } else {
+              onUpdate({ delayMs: parseInt(val, 10) });
+            }
+          }}
           min="0"
           className="w-32 bg-muted border-border text-foreground rounded-lg shadow-sm focus:ring-2 focus:ring-primary/40"
         />

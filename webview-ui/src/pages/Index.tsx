@@ -26,20 +26,29 @@ interface KarateResult {
 
 const generateGherkin = (testCase: TestCase): string => {
   console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
-  let gherkin = `Feature: ${testCase.name}\n\n`;
 
-  // Track extracted variables and missing variable flag
-  const extractedVars: Record<string, boolean> = {};
+  // --- FIX 1: Create only ONE Feature and ONE Scenario for the entire test case ---
+  // This ensures variables defined in one step are available to the next.
+  let gherkin = `Feature: ${testCase.name}\n\n`;
+  gherkin += `Scenario: Full flow for ${testCase.name}\n\n`;
+
+  // Map to track extracted variable types
+  const extractedVars: Record<string, { type: string }> = {};
   let missingVar = false;
 
   testCase.steps.forEach((step, idx) => {
+    // Add a comment to delineate steps for readability in the generated file
+    gherkin += `  # --- Step ${idx + 1}: ${step.name} ---\n`;
     const sanitizedStepName = step.name.replace(/'/g, "\\'");
-    gherkin += `Scenario: ${sanitizedStepName}\n`;
 
-    // If a previous variable was missing, skip this step and log
-    if (missingVar && idx > 0) {
-      gherkin += `  * print 'Step skipped due to missing required variable.'\n\n`;
+    if (missingVar) {
+      gherkin += `  * print 'Step "${sanitizedStepName}" skipped due to missing required variable from a previous step.'\n\n`;
       return;
+    }
+
+    if (step.delayMs && step.delayMs > 0) {
+      gherkin += `  * def Thread = Java.type('java.lang.Thread')\n`;
+      gherkin += `  * Thread.sleep(${step.delayMs})\n`;
     }
 
     if (step.type === 'api') {
@@ -51,41 +60,36 @@ const generateGherkin = (testCase: TestCase): string => {
       case 'sql':
       case 'redis':
       case 'clickhouse': {
-        let dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
-        let query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
-        // Substitute variables in query for Karate string interpolation
+        const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
+        const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
+        // Variable substitution with type awareness
         let karateQuery = query.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
-          console.log('[DEBUG:Index.tsx] Substituting variable:', varName);
           if (extractedVars[varName]) {
-            console.log('[DEBUG:Index.tsx] Extracted var:', extractedVars[varName]);
-            return '\'#(' + varName + ')\'';
+            const varType = extractedVars[varName].type || 'string';
+            if (varType === 'string') {
+              return `' + "'" + ${varName} + "'" + '`;
+            } else {
+              return `' + ${varName} + '`;
+            }
           } else {
             missingVar = true;
             gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
             return `MISSING_VAR_${varName}`;
           }
         });
-        // If interpolation happened, assign to Karate variable
-        if (/\$\{[a-zA-Z0-9_]+\}\$/.test(query)) {
-          gherkin += `  * def query = "${karateQuery}"\n`;
-          gherkin += `  * print 'query constructed: ' + query\n`;
-          gherkin += `  Given url 'http://localhost:8080/query'\n`;
-          gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
-        } else {
-          gherkin += `  Given url 'http://localhost:8080/query'\n`;
-          gherkin += `  And request { query: "${karateQuery}", type: "${step.type}" }\n`;
-        }
+        gherkin += `  * def query = '${karateQuery}'\n`;
+        gherkin += `  * print 'query constructed: ' + query\n`;
+        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
         gherkin += `  When method post\n`;
         break;
       }
       case 'api': {
         const apiConfig = step.config as ApiStepConfig;
         gherkin += `  Given url '${apiConfig.url.split('?')[0]}'\n`;
-        // Handle headers
         if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
           gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
         }
-        // Handle body
         if (apiConfig.body) {
           let body = apiConfig.body.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
             if (extractedVars[varName]) {
@@ -102,12 +106,11 @@ const generateGherkin = (testCase: TestCase): string => {
         }
         gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
         gherkin += `  Then status 200\n`;
-        // Extract variables if defined
         if (apiConfig.extractVars && apiConfig.extractVars.length > 0) {
-          apiConfig.extractVars.forEach(({ name, path }) => {
+          apiConfig.extractVars.forEach(({ name, path, type }) => {
             if (name && path) {
               gherkin += `  * def ${name} = karate.jsonPath(response, '${path}')\n`;
-              extractedVars[name] = true;
+              extractedVars[name] = { type: type || 'string' };
             } else {
               gherkin += `  * print 'Extraction variable name or path missing. Skipping further steps.'\n`;
               missingVar = true;
@@ -128,7 +131,7 @@ const generateGherkin = (testCase: TestCase): string => {
     gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
     gherkin += `  * print '---QATO_RESULT_START---'\n`;
     gherkin += `  * print karate.toJson(qatoPayload)\n`;
-    gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
+    gherkin += `  * print '---QATO_RESULT_END---'\n\n`; // Add a newline for readability
   });
 
   console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
@@ -155,32 +158,24 @@ const Index = () => {
               steps: [
                 {
                   id: 'step-1',
-                  name: 'Check DB Connection',
-                  type: 'sql',
-                  delayMs: 0,
-                  order: 0,
-                  config: { query: 'SELECT 1;' }
-                },
-                {
-                  id: 'step-2',
-                  name: 'Clear Cache',
-                  type: 'redis',
-                  delayMs: 100,
-                  order: 1,
-                  config: { command: 'FLUSHDB' }
-                },
-                {
-                  id: 'step-3',
                   name: 'Create User API',
                   type: 'api',
                   delayMs: 500,
                   order: 2,
                   config: {
                     method: 'POST',
-                    url: 'https://api.example.com/users',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: '{"name": "John Doe", "email": "john@example.com"}'
+                    url: 'https://rcmqa.karix.com/services/rcm/sendMessage',
+                    headers: { 'Authentication': 'Bearer Cv4zdo706u0P7YrwUMwRZA==' },
+                    body: '{"message":{"channel":"WABA","content":{"preview_url":true,"shorten_url":false,"type":"TEMPLATE","template":{"templateId":"tamil_template04","parameterValues":{},"language":"ta"}},"recipient":{"to":"919398712957","recipient_type":"individual","reference":{"cust_ref":"cust ref test new ","conversationId":"conversation id test new","batchId":"410130031031145835340211","messageTag1":"livedelivery","messageTag2":"uniqueid message","messageTag3":"tag3","messageTag4":"tag4","messageTag5":"tag5","messageTag10":"Naruto-11thJune"}},"sender":{"from":"917391093716"},"preferences":{"webHookDNId":"1001"},"smsFallback":{"sender":"Alerts","destination":"919790212113","message":"qa test message for testing lounge"}},"metaData":{"version":"v1.0.9","originator":"API"}}'
                   }
+                },
+                {
+                  id: 'step-2',
+                  name: 'Get MT SUB STATS',
+                  type: 'clickhouse',
+                  delayMs: 0,
+                  order: 0,
+                  config: { query: 'SELECT * from rcm_billing.RCM_MT_SUB_STATS;' }
                 }
               ]
             },
