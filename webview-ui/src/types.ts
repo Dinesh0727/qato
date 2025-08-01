@@ -31,6 +31,7 @@ export interface ApiStepConfig {
   url: string;
   headers: Record<string, string>;
   body?: string;
+  extractVars?: Array<{ name: string; path: string; type?: 'string' | 'integer' | 'float' | 'boolean' }>;
 }
 
 export interface ClickhouseStepConfig {

@@ -173,6 +173,76 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
                 />
               </TabsContent>
             </Tabs>
+
+            {/* Variable Extraction UI */}
+            <div className="mt-4">
+              <label className="text-sm text-muted-foreground mb-1 block font-semibold">Extract Variables from Response (JSONPath)</label>
+              {(apiConfig.extractVars || []).map((v, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <Input
+                    value={v.name}
+                    onChange={e => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], name: e.target.value };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    placeholder="Variable Name (e.g. mid)"
+                    className="w-1/4"
+                  />
+                  <Input
+                    value={v.path}
+                    onChange={e => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], path: e.target.value };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    placeholder="JSONPath (e.g. $.mid)"
+                    className="flex-1"
+                  />
+                  <Select
+                    value={v.type || 'string'}
+                    onValueChange={value => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars[i] = { ...newVars[i], type: value as any };
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                  >
+                    <SelectTrigger className="w-28 bg-muted border-border rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-muted border-border rounded-lg">
+                      <SelectItem value="string">String</SelectItem>
+                      <SelectItem value="integer">Integer</SelectItem>
+                      <SelectItem value="float">Float</SelectItem>
+                      <SelectItem value="boolean">Boolean</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => {
+                      const newVars = [...(apiConfig.extractVars || [])];
+                      newVars.splice(i, 1);
+                      onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                    }}
+                    className="ml-1"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const newVars = [...(apiConfig.extractVars || []), { name: '', path: '' }];
+                  onUpdate({ config: { ...apiConfig, extractVars: newVars } });
+                }}
+                className="mt-1"
+              >
+                + Add Variable
+              </Button>
+            </div>
           </div>
         );
 
@@ -201,7 +271,6 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
       className={`relative p-6 rounded-2xl shadow-xl border-2 transition-all duration-300
         ${getStepColor()} border-opacity-30
         bg-gradient-to-br from-background via-${getStepColor().replace('bg-', '')}/10 to-background
-        hover:scale-[1.02] hover:shadow-2xl
       `}
     >
       {/* Header */}
@@ -242,8 +311,15 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
         <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
         <Input
           type="number"
-          value={step.delayMs}
-          onChange={(e) => onUpdate({ delayMs: parseInt(e.target.value) || 0 })}
+          value={step.delayMs === 0 ? '' : step.delayMs}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === '' || isNaN(Number(val))) {
+              onUpdate({ delayMs: 0 });
+            } else {
+              onUpdate({ delayMs: parseInt(val, 10) });
+            }
+          }}
           min="0"
           className="w-32 bg-muted border-border text-foreground rounded-lg shadow-sm focus:ring-2 focus:ring-primary/40"
         />

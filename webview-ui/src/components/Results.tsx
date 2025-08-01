@@ -89,9 +89,9 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
   };
 
   return (
-    <div className="bg-background border-t border-border" style={{ height: '40vh' }}>
+    <div className="bg-background border-t border-border" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
       <Tabs defaultValue="logs" className="h-full flex flex-col">
-        <TabsList className="bg-card border-b border-border rounded-none w-full justify-start">
+        <TabsList className="bg-card border-b border-border rounded-none justify-start">
           <TabsTrigger value="logs" className="data-[state=active]:bg-accent">
             Execution Log ({executionLogs.length})
           </TabsTrigger>
@@ -259,7 +259,7 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
           </ScrollArea>
         </TabsContent>
 
-        <TabsContent value="db-results" className="flex-1 p-0">
+        <TabsContent value="db-results" className="flex-1 p-0 overflow-x-auto">
           <ScrollArea className="h-full">
             <div className="p-4">
               {dbResults.length === 0 ? (
@@ -283,7 +283,7 @@ export const Results = ({ executionLogs, testResults, stepResults }: ResultsProp
                           <span className="font-medium">DB Result: {dbRes.stepName} ({dbRes.type.toUpperCase()}) - {dbRes.executionTime ?? 'N/A'}ms</span>
                         </Button>
                         {expandedDbSteps.has(dbRes.stepName) && (
-                          <div className="mt-2">
+                          <div className="mt-2" style={{overflowX: 'scroll', display: 'inline-grid', overflowY: 'hidden'}}>
                             <DynamicTable data={Array.isArray(parsedResult) ? parsedResult : [parsedResult]} />
                           </div>
                         )}
