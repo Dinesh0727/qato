@@ -62,23 +62,38 @@ const generateGherkin = (testCase: TestCase): string => {
       case 'clickhouse': {
         const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
         const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
-        // Variable substitution with type awareness
-        let karateQuery = query.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
-          if (extractedVars[varName]) {
-            const varType = extractedVars[varName].type || 'string';
-            if (varType === 'string') {
-              return `' + "'" + ${varName} + "'" + '`;
+
+        // Check if query contains dynamic variables (${...}$ pattern)
+        const dynamicPattern = /\$\{([a-zA-Z0-9_]+)\}\$/g;
+        let karateQuery: string;
+
+        if (!dynamicPattern.test(query)) {
+          // No dynamic variables present
+          // Escape single quotes inside the query using \'
+          const escapedQuery = query.replace(/'/g, "\\'");
+          karateQuery = escapedQuery;
+          gherkin += `  * def query = '${karateQuery}'\n`;
+          gherkin += `  * print 'query (no substitution needed): ' + query\n`;
+        } else {
+          // Dynamic variables substitution logic
+          karateQuery = query.replace(dynamicPattern, (_match, varName) => {
+            if (extractedVars[varName]) {
+              const varType = extractedVars[varName].type || 'string';
+              if (varType === 'string') {
+                return `' + "'" + ${varName} + "'" + '`;
+              } else {
+                return `' + ${varName} + '`;
+              }
             } else {
-              return `' + ${varName} + '`;
+              missingVar = true;
+              gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
+              return `MISSING_VAR_${varName}`;
             }
-          } else {
-            missingVar = true;
-            gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
-            return `MISSING_VAR_${varName}`;
-          }
-        });
-        gherkin += `  * def query = '${karateQuery}'\n`;
-        gherkin += `  * print 'query constructed: ' + query\n`;
+          });
+          gherkin += `  * def query = '${karateQuery}'\n`;
+          gherkin += `  * print 'query constructed: ' + query\n`;
+        }
+
         gherkin += `  Given url 'http://localhost:8080/query'\n`;
         gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
         gherkin += `  When method post\n`;
