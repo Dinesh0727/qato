@@ -19,12 +19,17 @@ export const DynamicTable: React.FC<DynamicTableProps> = ({ data }) => {
 
   const allKeys = Array.from(new Set(data.flatMap(obj => Object.keys(obj))));
 
+  // Check if the data represents an error (e.g., contains 'error', 'message', or 'stack')
+  const isErrorData = data.some(obj => 
+    Object.keys(obj).some(key => ['error', 'message', 'stack'].includes(key.toLowerCase()))
+  );
+
   return (
     <Table className="min-w-full text-sm">
       <TableHeader>
         <TableRow>
           {allKeys.map(key => (
-            <TableHead key={key} className="whitespace-nowrap">{key}</TableHead>
+            <TableHead key={key} className="whitespace-nowrap">{key.toUpperCase()}</TableHead>
           ))}
         </TableRow>
       </TableHeader>
@@ -34,12 +39,17 @@ export const DynamicTable: React.FC<DynamicTableProps> = ({ data }) => {
             {allKeys.map(key => (
               <TableCell
                 key={`${rowIndex}-${key}`}
-                className="whitespace-nowrap max-w-xs truncate"
-                title={
-                  typeof row[key] === 'object' && row[key] !== null
-                    ? JSON.stringify(row[key])
-                    : String(row[key])
+                className={
+                  isErrorData
+                    ? 'p-4 align-middle whitespace-normal break-words' // Allow wrapping for errors
+                    : 'whitespace-nowrap max-w-xs truncate' // Original styling for non-errors
                 }
+                {...(isErrorData ? {} : { // Remove hover title for errors
+                  title:
+                    typeof row[key] === 'object' && row[key] !== null
+                      ? JSON.stringify(row[key])
+                      : String(row[key])
+                })}
               >
                 {typeof row[key] === 'object' && row[key] !== null
                   ? JSON.stringify(row[key])
