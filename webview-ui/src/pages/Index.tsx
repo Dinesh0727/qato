@@ -3,7 +3,7 @@ import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
 import { Results } from '@/components/Results';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection } from '@/types';
+import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
 // Define the structure of the VS Code API object
@@ -94,9 +94,14 @@ const generateGherkin = (testCase: TestCase): string => {
           gherkin += `  * print 'query constructed: ' + query\n`;
         }
 
-        gherkin += `  Given url 'http://localhost:8080/query'\n`;
+        gherkin += `  Given url 'http://localhost:8280/query'\n`;
         gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
         gherkin += `  When method post\n`;
+        gherkin += `  Then status 200\n`;
+        // Add error handling for DB responses
+        gherkin += `  * def dbResponse = response\n`;
+        gherkin += `  * def hasDbError = dbResponse.result && dbResponse.result[0] && dbResponse.result[0].error\n`;
+        gherkin += `  * if (hasDbError) karate.fail('DB Error: ' + dbResponse.result[0].error)\n`;
         break;
       }
       case 'api': {
@@ -138,15 +143,76 @@ const generateGherkin = (testCase: TestCase): string => {
         break;
       }
     }
-    if (step.type !== 'api') {
-      gherkin += `  * def responseData = response\n`;
-      gherkin += `  * def executionTime = responseData.executionTime\n`;
-      gherkin += `  * def resultData = responseData.result\n`;
+
+    // Validation logic - only run if no missing variables
+    if (step.validations && step.validations.length > 0 && !missingVar) {
+      step.validations.forEach((validation: ValidationConfig, valIdx) => {
+        const sanitizedTarget = validation.target.replace(/'/g, "\\'");
+        gherkin += `  # --- Validation ${valIdx + 1} for ${sanitizedStepName} ---\n`;
+        
+        let actualValue;
+        if (step.type === 'api') {
+          actualValue = `karate.jsonPath(response, '${sanitizedTarget}')`;
+        } else {
+          // For DB, assume result is an array of objects
+          actualValue = `response.result[0].${sanitizedTarget}`;
+        }
+        
+        gherkin += `  * def validationActual = ${actualValue}\n`;
+        
+        // Type-aware comparison
+        let expectedValue = validation.expectedValue;
+        if (validation.dataType === 'number') {
+          expectedValue = parseFloat(validation.expectedValue).toString();
+        } else if (validation.dataType === 'boolean') {
+          expectedValue = validation.expectedValue.toLowerCase();
+        } else if (validation.dataType === 'string') {
+          expectedValue = `'${validation.expectedValue.replace(/'/g, "\\'")}'`;
+        } else if (validation.dataType === 'array' || validation.dataType === 'object') {
+          try {
+            expectedValue = JSON.stringify(JSON.parse(validation.expectedValue));
+          } catch {
+            expectedValue = `'${validation.expectedValue.replace(/'/g, "\\'")}'`;
+          }
+        }
+        
+        gherkin += `  * def SimpleDateFormat = Java.type('java.text.SimpleDateFormat')\n`;
+        gherkin += `  * def Date = Java.type('java.util.Date')\n`;
+        gherkin += `  * def sdf = new SimpleDateFormat('yyyy-MM-dd HH:mm:ss')\n`;
+        gherkin += `  * def currentTimestamp = sdf.format(new Date())\n`;
+
+
+        gherkin += `  * def validationExpected = ${expectedValue}\n`;
+        gherkin += `  * def validationResult = validationActual == validationExpected ? 'success' : 'failure'\n`;
+        gherkin += `  * def validationPayload = { id: '${validation.id}', status: '#(validationResult)', actualValue: '#(validationActual)', expectedValue: '#(validationExpected)', dataType: '${validation.dataType}', target: '${sanitizedTarget}', timestamp: '#(currentTimestamp)' }\n`;
+        gherkin += `  * print '---QATO_VALIDATION_START---'\n`;
+        gherkin += `  * print karate.toJson(validationPayload)\n`;
+        gherkin += `  * print '---QATO_VALIDATION_END---'\n`;
+
+        // Fail the scenario if validation fails
+        gherkin += `  * assert validationResult == 'success'\n`;
+      });
     }
-    gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
-    gherkin += `  * print '---QATO_RESULT_START---'\n`;
-    gherkin += `  * print karate.toJson(qatoPayload)\n`;
-    gherkin += `  * print '---QATO_RESULT_END---'\n\n`; // Add a newline for readability
+
+    // Handle result generation based on step type and missing variables
+    if (missingVar) {
+      // If missing variables, create an error result
+      gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: { error: 'Step skipped due to missing required variables' }, executionTime: 0 }\n`;
+      gherkin += `  * print '---QATO_RESULT_START---'\n`;
+      gherkin += `  * print karate.toJson(qatoPayload)\n`;
+      gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
+    } else {
+      // Normal result generation
+      if (step.type !== 'api') {
+        gherkin += `  * def responseData = response\n`;
+        gherkin += `  * def executionTime = responseData.executionTime\n`;
+        gherkin += `  * def resultData = responseData.result\n`;
+      }
+      gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
+      gherkin += `  * print '---QATO_RESULT_START---'\n`;
+      gherkin += `  * print karate.toJson(qatoPayload)\n`;
+      gherkin += `  * print '---QATO_RESULT_END---'\n\n`; // Add a newline for readability
+    }
   });
 
   console.log('[DEBUG:Index.tsx] Generated Gherkin:\n', gherkin);
@@ -181,8 +247,18 @@ const Index = () => {
                     method: 'POST',
                     url: 'https://rcmqa.karix.com/services/rcm/sendMessage',
                     headers: { 'Authentication': 'Bearer Cv4zdo706u0P7YrwUMwRZA==' },
-                    body: '{"message":{"channel":"WABA","content":{"preview_url":true,"shorten_url":false,"type":"TEMPLATE","template":{"templateId":"tamil_template04","parameterValues":{},"language":"ta"}},"recipient":{"to":"919398712957","recipient_type":"individual","reference":{"cust_ref":"cust ref test new ","conversationId":"conversation id test new","batchId":"410130031031145835340211","messageTag1":"livedelivery","messageTag2":"uniqueid message","messageTag3":"tag3","messageTag4":"tag4","messageTag5":"tag5","messageTag10":"Naruto-11thJune"}},"sender":{"from":"917391093716"},"preferences":{"webHookDNId":"1001"},"smsFallback":{"sender":"Alerts","destination":"919790212113","message":"qa test message for testing lounge"}},"metaData":{"version":"v1.0.9","originator":"API"}}'
-                  }
+                    body: '{"message":{"channel":"WABA","content":{"preview_url":true,"shorten_url":false,"type":"TEMPLATE","template":{"templateId":"tamil_template04","parameterValues":{},"language":"ta"}},"recipient":{"to":"919398712957","recipient_type":"individual","reference":{"cust_ref":"cust ref test new ","conversationId":"conversation id test new","batchId":"410130031031145835340211","messageTag1":"livedelivery","messageTag2":"uniqueid message","messageTag3":"tag3","messageTag4":"tag4","messageTag5":"tag5","messageTag10":"Naruto-11thJune"}},"sender":{"from":"917391093716"},"preferences":{"webHookDNId":"1001"},"smsFallback":{"sender":"Alerts","destination":"919790212113","message":"qa test message for testing lounge"}},"metaData":{"version":"v1.0.9","originator":"API"}}',
+                  },
+                  validations: [
+                    {
+                      id: 'val-1',
+                      type: 'api',
+                      target: '$.status',
+                      expectedValue: 'success',
+                      dataType: 'string',
+                      stepId: 'step-1',
+                    },
+                  ],
                 },
                 {
                   id: 'step-2',
@@ -231,6 +307,7 @@ const Index = () => {
   const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
   const [testResults, setTestResults] = useState<KarateResult | null>(null);
   const [stepResults, setStepResults] = useState<any[]>([]); // New state for parsed results
+  const [validationResults, setValidationResults] = useState<any[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
   const runStartTime = useRef<number | null>(null);
@@ -349,11 +426,13 @@ const Index = () => {
           console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
           runStartTime.current = null;
         }
-        const { parsedResults, ...karateSummary } = message.payload;
+        const { parsedResults, validationResults, ...karateSummary } = message.payload;
         setTestResults(karateSummary);
         setStepResults(parsedResults || []);
+        setValidationResults(validationResults || []);
         console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
         console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
+        console.log('[DEBUG:Index.tsx] Processed validation results:', validationResults);
 
         toast({
           title: "Test Run Finished",
@@ -386,6 +465,7 @@ const Index = () => {
     setIsExecuting(true);
     setTestResults(null);
     setStepResults([]);
+    setValidationResults([]);
     setExecutionLogs([]);
 
     // Record start time
@@ -437,6 +517,7 @@ const Index = () => {
           executionLogs={executionLogs}
           testResults={testResults}
           stepResults={stepResults}
+          validationResults={validationResults}
         />
       </div>
     </div>

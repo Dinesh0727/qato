@@ -10,14 +10,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
 import { ApiHeadersEditor } from './ApiHeadersEditor';
 
+// Updated interface to include children prop
 interface StepCardProps {
   step: TestStep;
   index: number;
   onUpdate: (updates: Partial<TestStep>) => void;
   onDelete: () => void;
+  children?: React.ReactNode; // Added to support children
 }
 
-export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => {
+export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCardProps) => {
   const getStepIcon = () => {
     switch (step.type) {
       case 'sql':
@@ -327,6 +329,9 @@ export const StepCard = ({ step, index, onUpdate, onDelete }: StepCardProps) => 
 
       {/* Step Content */}
       {renderStepContent()}
+
+      {/* Render Children (ValidationEditor and validation list) */}
+      {children}
     </Card>
   );
 };

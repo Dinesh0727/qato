@@ -10,10 +10,11 @@ export interface TestCase {
 export interface TestStep {
   id: string;
   name: string;
-  type: 'sql' | 'redis' | 'api' | 'clickhouse';
-  delayMs: number;
+  type: 'api' | 'sql' | 'redis' | 'clickhouse';
+  delayMs?: number;
   order: number;
   config: SqlStepConfig | RedisStepConfig | ApiStepConfig | ClickhouseStepConfig;
+  validations?: ValidationConfig[];
 }
 
 export interface SqlStepConfig {
@@ -58,10 +59,10 @@ export interface Folder {
 
 export interface ExecutionLog {
   id: string;
-  timestamp: Date;
-  level: 'info' | 'success' | 'warning' | 'error';
+  level: string;
   message: string;
-  stepIndex: number;
+  timestamp: Date;
+  stepIndex?: number;
 }
 
 export interface ApiResponse {
@@ -70,4 +71,24 @@ export interface ApiResponse {
   headers: Record<string, string>;
   body: any;
   executionTime: number;
+}
+
+export interface ValidationConfig {
+  id: string;
+  type: 'api' | 'sql' | 'clickhouse';
+  target: string; // JSON path for API, column name for DB
+  expectedValue: string;
+  dataType: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  stepId: string; // Links to the step being validated
+}
+
+interface ValidationResult {
+  id: string;
+  status: 'success' | 'failure';
+  actualValue: any;
+  expectedValue: string;
+  dataType: string;
+  target: string;
+  message?: string;
+  timestamp: string;
 }

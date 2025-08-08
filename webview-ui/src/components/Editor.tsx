@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { TestCase, TestStep, ClickhouseStepConfig } from '@/types';
+import { TestCase, TestStep, ClickhouseStepConfig, ValidationConfig } from '@/types';
 import { StepCard } from '@/components/StepCard';
+import { ValidationEditor } from '@/components/ValidationEditor';
 import { useToast } from '@/hooks/use-toast';
 
 interface EditorProps {
@@ -46,7 +47,8 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
         ? { command: '' }
         : type === 'api'
         ? { method: 'GET', url: '', headers: {} }
-        : { query: '', database: '', host: '', port: 9000, user: '', password: '' } // clickhouse
+        : { query: '', database: '', host: '', port: 9000, user: '', password: '' },
+      validations: [], // Initialize validations as empty array
     };
 
     const updatedTestCase = {
@@ -96,6 +98,36 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
     onUpdateTestCase(updatedTestCase);
   };
 
+  const handleAddValidation = (stepId: string, validation: ValidationConfig) => {
+    if (!testCase) return;
+
+    const updatedTestCase = {
+      ...testCase,
+      steps: testCase.steps.map(step =>
+        step.id === stepId
+          ? { ...step, validations: [...(step.validations || []), validation] }
+          : step
+      )
+    };
+
+    onUpdateTestCase(updatedTestCase);
+  };
+
+  const handleRemoveValidation = (stepId: string, validationId: string) => {
+    if (!testCase) return;
+
+    const updatedTestCase = {
+      ...testCase,
+      steps: testCase.steps.map(step =>
+        step.id === stepId
+          ? { ...step, validations: step.validations?.filter(v => v.id !== validationId) || [] }
+          : step
+      )
+    };
+
+    onUpdateTestCase(updatedTestCase);
+  };
+
   if (!testCase) {
     return (
       <div className="flex-1 flex items-center justify-center bg-background">
@@ -110,7 +142,6 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
 
   return (
     <div className="flex-1 bg-background flex flex-col" style={{ height: '60vh' }}>
-      {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-foreground">{testCase.name}</h2>
@@ -126,7 +157,6 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
         </Button>
       </div>
 
-      {/* Steps List */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="space-y-4">
           {testCase.steps.map((step, index) => (
@@ -136,10 +166,38 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
               index={index}
               onUpdate={(updates) => handleUpdateStep(step.id, updates)}
               onDelete={() => handleDeleteStep(step.id)}
-            />
+            >
+              <ValidationEditor
+                stepId={step.id}
+                stepType={step.type}
+                onAddValidation={(validation) => handleAddValidation(step.id, validation)}
+              />
+              {step.validations?.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-medium mb-2">Validations</h4>
+                  {step.validations.map((validation) => (
+                    <div
+                      key={validation.id}
+                      className="flex items-center gap-2 mt-2 p-2 bg-muted rounded"
+                    >
+                      <span className="text-sm">
+                        {validation.type === 'api' ? 'JSON Path' : 'Column'}: {validation.target}, Expected: {validation.expectedValue} ({validation.dataType})
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveValidation(step.id, validation.id)}
+                        className="text-destructive hover:text-destructive/80"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </StepCard>
           ))}
 
-          {/* Add Step Button */}
           <div className="relative">
             {!showAddStep ? (
               <Button

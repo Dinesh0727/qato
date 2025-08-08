@@ -3,6 +3,7 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { QATO_CONFIG, buildErrorRegex, isDbError } from './config';
 
 let dbAccessProcess: cp.ChildProcess | null = null;
 
@@ -81,7 +82,7 @@ function startDbAccessService(context: vscode.ExtensionContext): Promise<void> {
         }
 
         const projectRootPath = context.extensionPath;
-        const springBootJarPath = path.join(projectRootPath, 'java-utils', 'qa-tool-orchaestrator', 'target', 'qa-tool-orchaestrator-0.0.1-SNAPSHOT.jar');
+        const springBootJarPath = path.join(projectRootPath, 'java-utils', 'qa-tool-orchaestrator', 'target', QATO_CONFIG.DB_SERVICE.JAR_NAME);
 
         console.log(`[QATO] Starting DB Access service: ${springBootJarPath}`);
 
@@ -138,9 +139,9 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
         return;
     }
 
-    const karateJarPath = path.join(projectRootPath, 'resources', 'karate-1.5.1.jar');
+            const karateJarPath = path.join(projectRootPath, 'resources', `karate-${QATO_CONFIG.KARATE.JAR_VERSION}.jar`);
     const karateProcess = cp.spawn('java', [
-        '-Dkarate.options=--output ' + path.join(projectRootPath, 'target'),
+        '-Dkarate.options=--output ' + path.join(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR),
         '-jar',
         karateJarPath,
         tempFeatureFilePath,
@@ -167,7 +168,7 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
             console.log(stderr);
         }
 
-        const reportPath = path.join(projectRootPath, 'target', 'karate-reports', 'karate-summary-json.txt');
+        const reportPath = path.join(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR, 'karate-reports', 'karate-summary-json.txt');
         let testResults = {};
 
         try {
@@ -185,22 +186,23 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
 
         // --- Simplified parsing logic ---
         const parsedResults: any[] = [];
+        const validationResults: any[] = [];
         const lines = stdout.split('\n');
         let capturing = false;
         let contentBlock = '';
+        let captureType = '';
 
         for (const line of lines) {
-            if (line.includes('---QATO_RESULT_START---')) {
+            if (line.includes('---QATO_RESULT_START---') || line.includes('---QATO_VALIDATION_START---')) {
                 capturing = true;
-                contentBlock = ''; // Reset for the new block
+                contentBlock = '';
+                captureType = line.includes('VALIDATION') ? 'validation' : 'result';
                 continue;
             }
 
-            if (line.includes('---QATO_RESULT_END---')) {
+            if (line.includes('---QATO_RESULT_END---') || line.includes('---QATO_VALIDATION_END---')) {
                 if (capturing) {
                     capturing = false;
-
-                    // Clean the collected block by removing log prefixes from each line
                     const cleanedLines = contentBlock.split('\n').map(l => {
                         const printPrefix = '[print] ';
                         const startIndex = l.indexOf(printPrefix);
@@ -209,37 +211,96 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
                     const jsonBlob = cleanedLines.join('\n').trim();
 
                     try {
-                        if (jsonBlob) { // Avoid parsing empty strings
+                        if (jsonBlob) {
                             const parsedObject = JSON.parse(jsonBlob);
-                            parsedResults.push(parsedObject);
+                            if (captureType === 'validation') {
+                                validationResults.push(parsedObject);
+                            } else {
+                                parsedResults.push(parsedObject);
+                            }
                         }
                     } catch (e: any) {
-                        console.error('[DEBUG:extension.ts] Failed to parse JSON blob from stdout:', e.message);
+                        console.error(`[DEBUG:extension.ts] Failed to parse ${captureType} JSON blob from stdout:`, e.message);
                         console.error('[DEBUG:extension.ts] Faulty JSON blob:', jsonBlob);
-                        parsedResults.push({
+                        const errorObject = {
                             stepName: 'Unknown Step (Parse Error)',
                             type: 'error',
                             result: {
-                                error: 'Failed to parse result from test log.',
+                                error: `Failed to parse ${captureType} from test log.`,
                                 raw: jsonBlob
                             }
-                        });
+                        };
+                        if (captureType === 'validation') {
+                            validationResults.push(errorObject);
+                        } else {
+                            parsedResults.push(errorObject);
+                        }
                     }
                 }
-                continue; // Move to the next line
+                continue;
             }
 
             if (capturing) {
-                contentBlock += line + '\n'; // Append line to the block
+                contentBlock += line + '\n';
             }
+        }
+
+        // --- NEW: Detect Karate errors and add as synthetic error results if no QATO result was printed ---
+        // Look for Karate errors in stdout and stderr using configurable patterns
+        const errorLines: string[] = [];
+        const errorRegex = buildErrorRegex();
+        const allLogs = stdout + '\n' + stderr;
+        console.log("[DEBUG:extension.ts] --- All Logs ---");
+        console.log(allLogs);
+        allLogs.split('\n').forEach(line => {
+            if (errorRegex.test(line)) {
+                errorLines.push(line);
+            }
+        });
+
+        // If Karate exited with error and no parsedResults, add error info
+        if (code !== 0 && parsedResults.length === 0 && errorLines.length > 0) {
+            // Check if it's a DB error specifically using configurable patterns
+            const dbError = isDbError(errorLines);
+            const errorType = dbError ? 'DB Error' : 'Karate Error';
+            const resultType = dbError ? 'db_error' : 'karate_error';
+
+            parsedResults.push({
+                stepName: `Unknown Step (${errorType})`,
+                type: resultType,
+                result: {
+                    error: dbError ? 'Database query failed due to missing variables or invalid query.' : 'Karate execution failed before QATO result block.',
+                    karateError: errorLines.join('\n').slice(0, QATO_CONFIG.MAX_ERROR_MESSAGE_LENGTH)
+                }
+            });
+        }
+
+        // If Karate exited with error and no validationResults, add error info
+        if (code !== 0 && validationResults.length === 0 && errorLines.length > 0) {
+            // Check if it's a DB error specifically using configurable patterns
+            const dbError = isDbError(errorLines);
+            
+            validationResults.push({
+                id: 'karate-error',
+                status: 'error',
+                target: dbError ? 'Database Query' : 'Karate Execution',
+                dataType: 'string',
+                expectedValue: '',
+                actualValue: '',
+                message: dbError ? 'Database query failed due to missing variables or invalid query.' : 'Karate execution failed before QATO validation block.',
+                timestamp: new Date().toISOString(),
+                karateError: errorLines.join('\n').slice(0, QATO_CONFIG.MAX_ERROR_MESSAGE_LENGTH)
+            });
         }
         
         console.log("[DEBUG:extension.ts] --- Parsed Results (Raw from Extension) ---");
         console.log(JSON.stringify(parsedResults, null, 2));
+        console.log("[DEBUG:extension.ts] --- Validation Results ---");
+        console.log(JSON.stringify(validationResults, null, 2));
 
         panel.webview.postMessage({
             command: 'testResult',
-            payload: { ...testResults, parsedResults } // Send raw JSON strings to the webview
+            payload: { ...testResults, parsedResults, validationResults } // Send raw JSON strings to the webview
         });
 
         if (code !== 0) {
