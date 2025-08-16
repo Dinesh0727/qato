@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
 import { Results } from '@/components/Results';
-import { ThemeToggle } from '@/components/ThemeToggle';
+import { Header } from '@/components/Header';
 import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
@@ -27,10 +27,23 @@ interface KarateResult {
 const generateGherkin = (testCase: TestCase): string => {
   console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
 
+  // Get flow control configuration
+  const flowControlConfig = testCase.flowControlConfig || {
+    stopOnFailure: false,
+    continueOnFailure: true,
+    skipRemainingSteps: false,
+    failureThreshold: 10
+  };
+
   // --- FIX 1: Create only ONE Feature and ONE Scenario for the entire test case ---
   // This ensures variables defined in one step are available to the next.
   let gherkin = `Feature: ${testCase.name}\n\n`;
   gherkin += `Scenario: Full flow for ${testCase.name}\n\n`;
+
+  // Add flow control configuration
+  gherkin += `  * def flowControlConfig = ${JSON.stringify(flowControlConfig)}\n`;
+  gherkin += `  * def failureCount = 0\n`;
+  gherkin += `  * def shouldContinue = true\n\n`;
 
   // Map to track extracted variable types
   const extractedVars: Record<string, { type: string }> = {};
@@ -40,6 +53,11 @@ const generateGherkin = (testCase: TestCase): string => {
     // Add a comment to delineate steps for readability in the generated file
     gherkin += `  # --- Step ${idx + 1}: ${step.name} ---\n`;
     const sanitizedStepName = step.name.replace(/'/g, "\\'");
+
+    // Check if we should continue execution using proper Karate syntax
+    gherkin += `  * def skipStep = !shouldContinue\n`;
+    gherkin += `  * if (skipStep) karate.log('Step "${sanitizedStepName}" skipped due to flow control decision')\n`;
+    gherkin += `  * if (skipStep) karate.abort()\n`;
 
     if (missingVar) {
       gherkin += `  * print 'Step "${sanitizedStepName}" skipped due to missing required variable from a previous step.'\n\n`;
@@ -125,7 +143,8 @@ const generateGherkin = (testCase: TestCase): string => {
           gherkin += `  And request requestBody\n`;
         }
         gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
-        gherkin += `  Then status 200\n`;
+        // Don't enforce status 200 - capture response regardless of status
+        gherkin += `  * print 'API Response Status: ' + responseStatus\n`;
         if (apiConfig.extractVars && apiConfig.extractVars.length > 0) {
           apiConfig.extractVars.forEach(({ name, path, type }) => {
             if (name && path) {
@@ -149,7 +168,7 @@ const generateGherkin = (testCase: TestCase): string => {
       step.validations.forEach((validation: ValidationConfig, valIdx) => {
         const sanitizedTarget = validation.target.replace(/'/g, "\\'");
         gherkin += `  # --- Validation ${valIdx + 1} for ${sanitizedStepName} ---\n`;
-        
+
         let actualValue;
         if (step.type === 'api') {
           actualValue = `karate.jsonPath(response, '${sanitizedTarget}')`;
@@ -157,9 +176,9 @@ const generateGherkin = (testCase: TestCase): string => {
           // For DB, assume result is an array of objects
           actualValue = `response.result[0].${sanitizedTarget}`;
         }
-        
+
         gherkin += `  * def validationActual = ${actualValue}\n`;
-        
+
         // Type-aware comparison
         let expectedValue = validation.expectedValue;
         if (validation.dataType === 'number') {
@@ -175,7 +194,7 @@ const generateGherkin = (testCase: TestCase): string => {
             expectedValue = `'${validation.expectedValue.replace(/'/g, "\\'")}'`;
           }
         }
-        
+
         gherkin += `  * def SimpleDateFormat = Java.type('java.text.SimpleDateFormat')\n`;
         gherkin += `  * def Date = Java.type('java.util.Date')\n`;
         gherkin += `  * def sdf = new SimpleDateFormat('yyyy-MM-dd HH:mm:ss')\n`;
@@ -184,13 +203,25 @@ const generateGherkin = (testCase: TestCase): string => {
 
         gherkin += `  * def validationExpected = ${expectedValue}\n`;
         gherkin += `  * def validationResult = validationActual == validationExpected ? 'success' : 'failure'\n`;
-        gherkin += `  * def validationPayload = { id: '${validation.id}', status: '#(validationResult)', actualValue: '#(validationActual)', expectedValue: '#(validationExpected)', dataType: '${validation.dataType}', target: '${sanitizedTarget}', timestamp: '#(currentTimestamp)' }\n`;
+
+        // Add custom error message if provided
+        const customMessage = validation.customErrorMessage ?
+          validation.customErrorMessage.replace(/'/g, "\\'") :
+          `Validation failed for ${sanitizedTarget}`;
+
+        gherkin += `  * def validationMessage = validationResult == 'success' ? '' : '${customMessage}'\n`;
+        gherkin += `  * def validationPayload = { id: '${validation.id}', status: '#(validationResult)', actualValue: '#(validationActual)', expectedValue: '#(validationExpected)', dataType: '${validation.dataType}', target: '${sanitizedTarget}', timestamp: '#(currentTimestamp)', message: '#(validationMessage)' }\n`;
         gherkin += `  * print '---QATO_VALIDATION_START---'\n`;
         gherkin += `  * print karate.toJson(validationPayload)\n`;
         gherkin += `  * print '---QATO_VALIDATION_END---'\n`;
 
-        // Fail the scenario if validation fails
-        gherkin += `  * assert validationResult == 'success'\n`;
+        // Handle flow control based on validation result
+        gherkin += `  * if (validationResult == 'failure') failureCount = failureCount + 1\n`;
+        gherkin += `  * if (validationResult == 'failure' && flowControlConfig.stopOnFailure) shouldContinue = false\n`;
+        gherkin += `  * if (failureCount >= flowControlConfig.failureThreshold) shouldContinue = false\n`;
+
+        // Only assert if we should stop on failure, otherwise just log
+        gherkin += `  * if (validationResult == 'failure' && flowControlConfig.stopOnFailure) karate.fail('Validation failed: ' + validationMessage)\n`;
       });
     }
 
@@ -388,13 +419,13 @@ const Index = () => {
   };
 
   const handleMessage = useCallback((event: MessageEvent) => {
-    const message = event.data as { command: string; payload: any };
+    const message = event.data as { command: string; payload: unknown };
     console.log('[DEBUG:Index.tsx] Received message from extension:', message);
 
     switch (message.command) {
       case 'inputBoxResult': {
         const { value, context } = message.payload;
-        if (!value) return; 
+        if (!value) return;
 
         switch (context.type) {
           case 'addFolder':
@@ -416,9 +447,9 @@ const Index = () => {
       case 'testResult': {
         setIsExecuting(false);
         if (!message.payload) {
-            console.error('Received testResult with null payload.');
-            toast({ title: "Error", description: "Received empty test results.", variant: "destructive" });
-            return;
+          console.error('Received testResult with null payload.');
+          toast({ title: "Error", description: "Received empty test results.", variant: "destructive" });
+          return;
         }
         // Log execution time
         if (runStartTime.current) {
@@ -494,31 +525,34 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex theme-transition">
-      <ThemeToggle />
-      <TestNavigator
-        isCollapsed={isNavigatorCollapsed}
-        onToggleCollapse={() => setIsNavigatorCollapsed(!isNavigatorCollapsed)}
-        selectedTestCase={selectedTestCase}
-        onSelectTestCase={setSelectedTestCase}
-        vscode={vscode}
-        folders={folders}
-      />
-      
-      <div className="flex-1 flex flex-col">
-        <Editor
-          testCase={selectedTestCase}
-          onUpdateTestCase={handleUpdateTestCase}
-          onRunTestCase={handleRunTestCase}
-          isExecuting={isExecuting}
+    <div className="min-h-screen bg-background text-foreground flex flex-col theme-transition">
+      <Header />
+
+      <div className="flex-1 flex">
+        <TestNavigator
+          isCollapsed={isNavigatorCollapsed}
+          onToggleCollapse={() => setIsNavigatorCollapsed(!isNavigatorCollapsed)}
+          selectedTestCase={selectedTestCase}
+          onSelectTestCase={setSelectedTestCase}
+          vscode={vscode}
+          folders={folders}
         />
-        
-        <Results
-          executionLogs={executionLogs}
-          testResults={testResults}
-          stepResults={stepResults}
-          validationResults={validationResults}
-        />
+
+        <div className="flex-1 flex flex-col">
+          <Editor
+            testCase={selectedTestCase}
+            onUpdateTestCase={handleUpdateTestCase}
+            onRunTestCase={handleRunTestCase}
+            isExecuting={isExecuting}
+          />
+
+          <Results
+            executionLogs={executionLogs}
+            testResults={testResults}
+            stepResults={stepResults}
+            validationResults={validationResults}
+          />
+        </div>
       </div>
     </div>
   );

@@ -331,7 +331,11 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCard
       {renderStepContent()}
 
       {/* Render Children (ValidationEditor and validation list) */}
-      {children}
+      {children && (
+        <div className="mt-6 pt-4 border-t border-border/50">
+          {children}
+        </div>
+      )}
     </Card>
   );
 };

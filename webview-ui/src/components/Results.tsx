@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { DynamicTable } from '@/components/DynamicTable';
 import { ExecutionLog, ApiResponse, ValidationResult } from '@/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,23 +10,45 @@ import { CheckCircle, AlertCircle, XCircle, Clock, ChevronDown, ChevronRight } f
 
 interface ResultsProps {
   executionLogs: ExecutionLog[];
-  testResults: { [key: string]: any } | null;
-  stepResults: { stepName: string; type: string; result: any; executionTime?: number }[];
+  testResults: { [key: string]: unknown } | null;
+  stepResults: { stepName: string; type: string; result: unknown; executionTime?: number }[];
   validationResults: ValidationResult[];
 }
 
 export const Results = ({ executionLogs, testResults, stepResults, validationResults }: ResultsProps) => {
   const [expandedApiSteps, setExpandedApiSteps] = useState<Set<string>>(new Set());
   const [expandedDbSteps, setExpandedDbSteps] = useState<Set<string>>(new Set());
-  // Add state for headers/body collapse per step
   const [expandedValidationSteps, setExpandedValidationSteps] = useState<Set<string>>(new Set());
   const [collapsedHeaders, setCollapsedHeaders] = useState<{ [stepName: string]: boolean }>({});
   const [collapsedBody, setCollapsedBody] = useState<{ [stepName: string]: boolean }>({});
+  const [containerHeight, setContainerHeight] = useState<number>(400);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   console.log("[DEBUG:Results.tsx] Received stepResults prop:", stepResults);
   console.log("[DEBUG:Results.tsx] Received validationResults prop:", validationResults);
 
-  const getParsedResult = (result: any) => {
+  // Calculate responsive height based on viewport
+  useEffect(() => {
+    const calculateHeight = () => {
+      if (containerRef.current) {
+        const viewportHeight = window.innerHeight;
+        const containerTop = containerRef.current.getBoundingClientRect().top;
+        const availableHeight = viewportHeight - containerTop - 20; // 20px padding
+        const minHeight = 300;
+        const maxHeight = Math.max(minHeight, availableHeight);
+        setContainerHeight(maxHeight);
+      }
+    };
+
+    calculateHeight();
+    window.addEventListener('resize', calculateHeight);
+    
+    return () => {
+      window.removeEventListener('resize', calculateHeight);
+    };
+  }, []);
+
+  const getParsedResult = (result: unknown) => {
     if (typeof result === 'string') {
       try {
         return JSON.parse(result);
@@ -104,23 +126,27 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
   };
 
   return (
-    <div className="bg-background border-t border-border" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+    <div 
+      ref={containerRef}
+      className="bg-background border-t border-border flex flex-col"
+      style={{ height: `${containerHeight}px` }}
+    >
       <Tabs defaultValue="logs" className="h-full flex flex-col">
-        <TabsList className="bg-card border-b border-border rounded-none justify-start">
-          <TabsTrigger value="logs" className="data-[state=active]:bg-accent">
-            Execution Log ({executionLogs.length})
+        <TabsList className="bg-card border-b border-border rounded-none justify-start flex-wrap min-h-fit gap-1 p-1">
+          <TabsTrigger value="logs" className="data-[state=active]:bg-accent flex-shrink-0 text-xs px-3 py-1.5">
+            Logs ({executionLogs.length})
           </TabsTrigger>
-          <TabsTrigger value="response" className="data-[state=active]:bg-accent">
-            API Responses ({apiResults.length})
+          <TabsTrigger value="response" className="data-[state=active]:bg-accent flex-shrink-0 text-xs px-3 py-1.5">
+            API ({apiResults.length})
           </TabsTrigger>
-          <TabsTrigger value="db-results" className="data-[state=active]:bg-accent">
-            DB Results ({dbResults.length})
+          <TabsTrigger value="db-results" className="data-[state=active]:bg-accent flex-shrink-0 text-xs px-3 py-1.5">
+            DB ({dbResults.length})
           </TabsTrigger>
-          <TabsTrigger value="validations" className="data-[state=active]:bg-accent">
-            Validation Results ({validationResults.length})
+          <TabsTrigger value="validations" className="data-[state=active]:bg-accent flex-shrink-0 text-xs px-3 py-1.5">
+            Validations ({validationResults.length})
           </TabsTrigger>
-          <TabsTrigger value="results" className="data-[state=active]:bg-accent">
-            Raw Test Results
+          <TabsTrigger value="results" className="data-[state=active]:bg-accent flex-shrink-0 text-xs px-3 py-1.5">
+            Raw Results
           </TabsTrigger>
         </TabsList>
 
@@ -184,16 +210,23 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                     if (!parsedResult || typeof parsedResult !== 'object' || parsedResult.error) {
                       return (
                         <Card key={index} className="bg-card border-destructive p-4">
-                          <p className="font-medium text-destructive">Error processing response for: {stepName}</p>
-                          <pre className="bg-muted p-2 mt-2 rounded text-sm overflow-x-auto">
-                            {JSON.stringify(apiRes.result, null, 2)}
-                          </pre>
+                          <p className="font-medium text-destructive">
+                            Error processing response for: {stepName}
+                          </p>
+                          <div className="mt-2 max-h-60 overflow-auto rounded bg-muted p-2">
+                            <pre className="text-sm text-foreground whitespace-pre-wrap break-all">
+                              {JSON.stringify(apiRes.result, null, 2)}
+                            </pre>
+                          </div>
+
                           {/* Display Karate error details if available */}
-                          {parsedResult && parsedResult.karateError && (
-                            <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-                              <p className="font-medium text-red-700 dark:text-red-300 mb-2">Karate Error Details:</p>
-                              <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap overflow-x-auto">
-                                {parsedResult.result.karateError}
+                          {parsedResult && (parsedResult as any).karateError && (
+                            <div className="mt-3 p-3 max-h-60 overflow-auto bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+                              <p className="font-medium text-red-700 dark:text-red-300 mb-2">
+                                Karate Error Details:
+                              </p>
+                              <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">
+                                {(parsedResult as any).karateError}
                               </pre>
                             </div>
                           )}
@@ -264,12 +297,17 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                                 onClick={toggleBody}
                                 className="flex items-center gap-2 mb-1 text-foreground hover:text-foreground/80"
                               >
-                                {isBodyCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                {isBodyCollapsed ? (
+                                  <ChevronRight className="h-4 w-4" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4" />
+                                )}
                                 <span className="font-medium">Body</span>
                               </Button>
+
                               {!isBodyCollapsed && (
-                                <div className="max-h-60 overflow-y-auto ml-6">
-                                  <pre className="bg-muted p-3 rounded text-sm text-foreground overflow-x-auto">
+                                <div className="ml-6 max-h-60 overflow-auto rounded bg-muted p-3">
+                                  <pre className="text-sm text-foreground whitespace-pre-wrap break-all">
                                     {JSON.stringify(parsedResult.body, null, 2)}
                                   </pre>
                                 </div>
@@ -309,11 +347,11 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                             {JSON.stringify(dbRes.result, null, 2)}
                           </pre>
                           {/* Display Karate error details if available */}
-                          {parsedResult && parsedResult.karateError && (
+                          {parsedResult && (parsedResult as unknown).karateError && (
                             <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
                               <p className="font-medium text-red-700 dark:text-red-300 mb-2">Karate Error Details:</p>
                               <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap overflow-x-auto">
-                                {parsedResult.result.karateError}
+                                {(parsedResult as unknown).karateError}
                               </pre>
                             </div>
                           )}

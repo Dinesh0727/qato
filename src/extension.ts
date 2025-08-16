@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 import { QATO_CONFIG, buildErrorRegex, isDbError } from './config';
 
 let dbAccessProcess: cp.ChildProcess | null = null;
@@ -25,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
         const htmlPath = path.join(distPath, 'index.html');
         const htmlContent = fs.readFileSync(htmlPath, 'utf8');
 
-        let finalHtml = htmlContent.replace( /\/assets\//g, `${panel.webview.asWebviewUri(vscode.Uri.file(path.join(distPath, 'assets')))}/`);
+        let finalHtml = htmlContent.replace(/\/assets\//g, `${panel.webview.asWebviewUri(vscode.Uri.file(path.join(distPath, 'assets')))}/`);
         finalHtml = finalHtml.replace(
             '<body>',
             `<body><script>const vscode = acquireVsCodeApi();</script>`
@@ -129,9 +128,15 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
     }
 
     const projectRootPath = context.extensionPath;
-    const tempFeatureFilePath = path.join(os.tmpdir(), `qato-temp-${Date.now()}.feature`);
+    // Create temp file in project directory to avoid cross-drive path issues on Windows
+    const targetDir = path.join(projectRootPath, 'target');
+    const tempFeatureFilePath = path.join(targetDir, `qato-temp-${Date.now()}.feature`);
 
     try {
+        // Ensure target directory exists
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
         fs.writeFileSync(tempFeatureFilePath, featureFileContent, 'utf8');
         console.log(`[DEBUG:extension.ts] Wrote temporary feature file to: ${tempFeatureFilePath}`);
     } catch (error: any) {
@@ -139,12 +144,15 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
         return;
     }
 
-            const karateJarPath = path.join(projectRootPath, 'resources', `karate-${QATO_CONFIG.KARATE.JAR_VERSION}.jar`);
+    const karateJarPath = path.resolve(projectRootPath, 'resources', `karate-${QATO_CONFIG.KARATE.JAR_VERSION}.jar`);
+    const outputDir = path.resolve(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR);
+    const absoluteFeaturePath = path.resolve(tempFeatureFilePath);
+
     const karateProcess = cp.spawn('java', [
-        '-Dkarate.options=--output ' + path.join(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR),
+        `-Dkarate.options=--output "${outputDir}"`,
         '-jar',
         karateJarPath,
-        tempFeatureFilePath,
+        absoluteFeaturePath,
     ], {
         cwd: projectRootPath
     });
@@ -168,7 +176,7 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
             console.log(stderr);
         }
 
-        const reportPath = path.join(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR, 'karate-reports', 'karate-summary-json.txt');
+        const reportPath = path.resolve(projectRootPath, QATO_CONFIG.KARATE.OUTPUT_DIR, 'karate-reports', 'karate-summary-json.txt');
         let testResults = {};
 
         try {
@@ -279,7 +287,7 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
         if (code !== 0 && validationResults.length === 0 && errorLines.length > 0) {
             // Check if it's a DB error specifically using configurable patterns
             const dbError = isDbError(errorLines);
-            
+
             validationResults.push({
                 id: 'karate-error',
                 status: 'error',
@@ -292,7 +300,7 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
                 karateError: errorLines.join('\n').slice(0, QATO_CONFIG.MAX_ERROR_MESSAGE_LENGTH)
             });
         }
-        
+
         console.log("[DEBUG:extension.ts] --- Parsed Results (Raw from Extension) ---");
         console.log(JSON.stringify(parsedResults, null, 2));
         console.log("[DEBUG:extension.ts] --- Validation Results ---");
