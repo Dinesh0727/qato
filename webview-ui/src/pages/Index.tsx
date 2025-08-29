@@ -525,10 +525,10 @@ const Index = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col theme-transition">
+    <div className="h-screen bg-background text-foreground flex flex-col theme-transition overflow-hidden">
       <Header />
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         <TestNavigator
           isCollapsed={isNavigatorCollapsed}
           onToggleCollapse={() => setIsNavigatorCollapsed(!isNavigatorCollapsed)}
@@ -538,15 +538,12 @@ const Index = () => {
           folders={folders}
         />
 
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
           <Editor
             testCase={selectedTestCase}
             onUpdateTestCase={handleUpdateTestCase}
             onRunTestCase={handleRunTestCase}
             isExecuting={isExecuting}
-          />
-
-          <Results
             executionLogs={executionLogs}
             testResults={testResults}
             stepResults={stepResults}

@@ -1,15 +1,12 @@
 import { useState } from 'react';
-import { Play, Plus, GripVertical, Trash2, Database, Zap, Globe, Table } from 'lucide-react';
+import { Play, Plus, Database, Zap, Globe, Table } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { TestCase, TestStep, ClickhouseStepConfig, ValidationConfig, FlowControlConfig } from '@/types';
+import { TestCase, TestStep, ValidationConfig, FlowControlConfig, ExecutionLog, ValidationResult } from '@/types';
 import { StepCard } from '@/components/StepCard';
 import { ValidationEditor } from '@/components/ValidationEditor';
 import { FlowControlSettings } from '@/components/FlowControlSettings';
+import { Results } from '@/components/Results';
 import { useToast } from '@/hooks/use-toast';
 
 interface EditorProps {
@@ -17,9 +14,13 @@ interface EditorProps {
   onUpdateTestCase: (testCase: TestCase) => void;
   onRunTestCase: (testCase: TestCase) => void;
   isExecuting: boolean;
+  executionLogs: ExecutionLog[];
+  testResults: { [key: string]: unknown } | null;
+  stepResults: { stepName: string; type: string; result: unknown; executionTime?: number }[];
+  validationResults: ValidationResult[];
 }
 
-export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting }: EditorProps) => {
+export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting, executionLogs, testResults, stepResults, validationResults }: EditorProps) => {
   const [showAddStep, setShowAddStep] = useState(false);
   const { toast } = useToast();
 
@@ -45,10 +46,10 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
       config: type === 'sql'
         ? { query: '' }
         : type === 'redis'
-        ? { command: '' }
-        : type === 'api'
-        ? { method: 'GET', url: '', headers: {} }
-        : { query: '', database: '', host: '', port: 9000, user: '', password: '' },
+          ? { command: '' }
+          : type === 'api'
+            ? { method: 'GET', url: '', headers: {} }
+            : { query: '', database: '', host: '', port: 9000, user: '', password: '' },
       validations: [], // Initialize validations as empty array
     };
 
@@ -91,7 +92,7 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
 
     const updatedTestCase = {
       ...testCase,
-      steps: testCase.steps.map(step => 
+      steps: testCase.steps.map(step =>
         step.id === stepId ? { ...step, ...updates } : step
       )
     };
@@ -121,12 +122,12 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
       ...testCase,
       steps: testCase.steps.map(step =>
         step.id === stepId
-          ? { 
-              ...step, 
-              validations: step.validations?.map(v => 
-                v.id === validationId ? { ...v, ...updates } : v
-              ) || [] 
-            }
+          ? {
+            ...step,
+            validations: step.validations?.map(v =>
+              v.id === validationId ? { ...v, ...updates } : v
+            ) || []
+          }
           : step
       )
     };
@@ -184,8 +185,8 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
   }
 
   return (
-    <div className="flex-1 bg-background flex flex-col" style={{ height: '60vh' }}>
-      <div className="p-4 border-b border-border flex items-center justify-between">
+    <div className="flex-1 bg-background flex flex-col min-h-0">
+      <div className="p-4 border-b border-border flex items-center justify-between flex-shrink-0">
         <div>
           <h2 className="text-lg font-semibold text-foreground">{testCase.name}</h2>
           <p className="text-sm text-muted-foreground">{testCase.steps.length} steps</p>
@@ -200,7 +201,7 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 min-h-0">
         <div className="space-y-4">
           {/* Flow Control Settings */}
           <FlowControlSettings
@@ -281,6 +282,16 @@ export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting 
                 </div>
               </Card>
             )}
+          </div>
+
+          
+          <div className="pt-6 mt-6 border-t border-border">
+            <Results
+              executionLogs={executionLogs}
+              testResults={testResults}
+              stepResults={stepResults}
+              validationResults={validationResults}
+            />
           </div>
         </div>
       </div>
