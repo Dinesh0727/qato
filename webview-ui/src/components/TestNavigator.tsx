@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Folder as FolderType, Collection as CollectionType, TestCase as TestCaseType } from '@/types';
+import { Input } from '@/components/ui/input';
+import { Folder as FolderType, TestCase as TestCaseType } from '@/types';
 
 // Define the structure of the VS Code API object
 interface VsCodeApi {
@@ -32,6 +33,7 @@ export const TestNavigator = ({
 }: TestNavigatorProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(folders.map(f => f.id)));
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(new Set(folders.flatMap(f => f.collections.map(c => c.id))));
+  const [searchQuery, setSearchQuery] = useState('');
 
   const toggleFolder = (folderId: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -63,39 +65,67 @@ export const TestNavigator = ({
     });
   };
 
+  // Filter folders and test cases based on search query
+  const filteredFolders = useMemo(() => {
+    if (!searchQuery.trim()) return folders;
+    
+    return folders.map(folder => ({
+      ...folder,
+      collections: folder.collections.map(collection => ({
+        ...collection,
+        testCases: collection.testCases.filter(testCase =>
+          testCase.name.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      })).filter(collection => collection.testCases.length > 0)
+    })).filter(folder => folder.collections.length > 0);
+  }, [folders, searchQuery]);
+
   if (isCollapsed) {
     return (
-      <div className="w-12 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out">
-        <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="m-2 text-muted-foreground hover:text-foreground transition-colors duration-200">
-          <Menu className="h-4 w-4"/>
+      <div className="w-12 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out h-screen">
+        <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="m-2 text-muted-foreground hover:text-foreground transition-colors duration-200 h-6 w-6 p-0">
+          <Menu className="h-3 w-3"/>
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="w-80 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out">
+    <div className="w-80 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out h-screen">
       {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="font-semibold text-foreground">Test Navigator</h2>
-        <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="text-muted-foreground hover:text-foreground transition-colors duration-200">
-          <X className="h-4 w-4"/>
+      <div className="px-3 py-2 border-b border-border flex items-center justify-between flex-shrink-0">
+        <h2 className="font-medium text-foreground text-sm">Test Navigator</h2>
+        <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="text-muted-foreground hover:text-foreground transition-colors duration-200 h-6 w-6 p-0">
+          <X className="h-3 w-3"/>
         </Button>
       </div>
 
+      {/* Search Bar */}
+      <div className="p-2 flex-shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <Input
+            placeholder="Search test cases..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-7 h-7 text-xs"
+          />
+        </div>
+      </div>
+
       {/* Add Folder Button */}
-      <div className="p-2">
-        <Button variant="outline" className="w-full" onClick={() => handleRequestInput({
+      <div className="px-2 pb-2 flex-shrink-0">
+        <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={() => handleRequestInput({
             type: 'addFolder',
             prompt: "Enter new folder name:"
         })}>
-          <Plus className="h-4 w-4 mr-2" /> Add Folder
+          <Plus className="h-3 w-3 mr-1" /> Add Folder
         </Button>
       </div>
 
       {/* Tree View */}
-      <div className="flex-1 overflow-y-auto p-2">
-        {folders.map((folder) => (
+      <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
+        {filteredFolders.map((folder) => (
           <div key={folder.id} className="mb-2">
             {/* Folder */}
             <div className="flex items-center group hover:bg-accent rounded px-2 py-1 transition-colors duration-200">
@@ -147,6 +177,13 @@ export const TestNavigator = ({
             </div>
           </div>
         ))}
+        {filteredFolders.length === 0 && searchQuery.trim() && (
+          <div className="text-center py-4">
+            <div className="text-2xl mb-2">🔍</div>
+            <p className="text-xs text-muted-foreground">No test cases found</p>
+            <p className="text-xs text-muted-foreground/70">Try a different search term</p>
+          </div>
+        )}
       </div>
     </div>
   );
