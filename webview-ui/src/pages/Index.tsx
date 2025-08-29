@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
-import { Results } from '@/components/Results';
 import { Header } from '@/components/Header';
-import { TestCase, ExecutionLog, ApiResponse, TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig } from '@/types';
+import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
 // Define the structure of the VS Code API object
@@ -20,6 +19,35 @@ interface KarateResult {
     name: string;
     failedCount: number;
   }[];
+}
+
+// Workspace types for file system integration
+interface WorkspaceTree {
+  rootPath: string;
+  folders: WorkspaceFolder[];
+}
+
+interface WorkspaceFolder {
+  id: string;
+  name: string;
+  path: string;
+  collections: WorkspaceCollection[];
+}
+
+interface WorkspaceCollection {
+  id: string;
+  name: string;
+  path: string;
+  folderId: string;
+  testCases: WorkspaceTestCase[];
+}
+
+interface WorkspaceTestCase {
+  id: string;
+  name: string;
+  path: string;
+  collectionId: string;
+  testCase: TestCase;
 }
 
 // src/components/Index.tsx
@@ -251,180 +279,159 @@ const generateGherkin = (testCase: TestCase): string => {
 };
 
 const Index = () => {
-  const [folders, setFolders] = useState<Folder[]>([
-    {
-      id: 'folder-1',
-      name: 'E-commerce API Tests',
-      collections: [
-        {
-          id: 'collection-1',
-          name: 'User Management',
-          folderId: 'folder-1',
-          testCases: [
-            {
-              id: 'test-1',
-              name: 'Create User Flow',
-              collectionId: 'collection-1',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              steps: [
-                {
-                  id: 'step-1',
-                  name: 'Create User API',
-                  type: 'api',
-                  delayMs: 500,
-                  order: 2,
-                  config: {
-                    method: 'POST',
-                    url: 'https://rcmqa.karix.com/services/rcm/sendMessage',
-                    headers: { 'Authentication': 'Bearer Cv4zdo706u0P7YrwUMwRZA==' },
-                    body: '{"message":{"channel":"WABA","content":{"preview_url":true,"shorten_url":false,"type":"TEMPLATE","template":{"templateId":"tamil_template04","parameterValues":{},"language":"ta"}},"recipient":{"to":"919398712957","recipient_type":"individual","reference":{"cust_ref":"cust ref test new ","conversationId":"conversation id test new","batchId":"410130031031145835340211","messageTag1":"livedelivery","messageTag2":"uniqueid message","messageTag3":"tag3","messageTag4":"tag4","messageTag5":"tag5","messageTag10":"Naruto-11thJune"}},"sender":{"from":"917391093716"},"preferences":{"webHookDNId":"1001"},"smsFallback":{"sender":"Alerts","destination":"919790212113","message":"qa test message for testing lounge"}},"metaData":{"version":"v1.0.9","originator":"API"}}',
-                  },
-                  validations: [
-                    {
-                      id: 'val-1',
-                      type: 'api',
-                      target: '$.status',
-                      expectedValue: 'success',
-                      dataType: 'string',
-                      stepId: 'step-1',
-                    },
-                  ],
-                },
-                {
-                  id: 'step-2',
-                  name: 'Get MT SUB STATS',
-                  type: 'clickhouse',
-                  delayMs: 0,
-                  order: 0,
-                  config: { query: 'SELECT * from rcm_billing.RCM_MT_SUB_STATS;' }
-                }
-              ]
-            },
-            {
-              id: 'test-2',
-              name: 'User Login Test',
-              collectionId: 'collection-1',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              steps: []
-            }
-          ]
-        },
-        {
-          id: 'collection-2',
-          name: 'Product Catalog',
-          folderId: 'folder-1',
-          testCases: [
-            {
-              id: 'test-3',
-              name: 'Product Search',
-              collectionId: 'collection-2',
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              steps: []
-            }
-          ]
-        }
-      ]
-    }
-  ]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [workspaceTree, setWorkspaceTree] = useState<WorkspaceTree | null>(null);
+  const [isWorkspaceInitialized, setIsWorkspaceInitialized] = useState(false);
 
-  const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
-  const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null);
   const [selectedTestCase, setSelectedTestCase] = useState<TestCase | null>(null);
   const [isNavigatorCollapsed, setIsNavigatorCollapsed] = useState(false);
   const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([]);
-  const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
-  const [testResults, setTestResults] = useState<KarateResult | null>(null);
-  const [stepResults, setStepResults] = useState<any[]>([]); // New state for parsed results
+  const [testResults, setTestResults] = useState<Record<string, unknown> | null>(null);
+  const [stepResults, setStepResults] = useState<any[]>([]);
   const [validationResults, setValidationResults] = useState<any[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
   const runStartTime = useRef<number | null>(null);
 
+  // Convert workspace tree to folder structure for UI compatibility
+  const convertWorkspaceToFolders = useCallback((workspaceTree: WorkspaceTree): Folder[] => {
+    return workspaceTree.folders.map(wsFolder => ({
+      id: wsFolder.id,
+      name: wsFolder.name,
+      collections: wsFolder.collections.map(wsCollection => ({
+        id: wsCollection.id,
+        name: wsCollection.name,
+        folderId: wsCollection.folderId,
+        testCases: wsCollection.testCases.map(wsTestCase => wsTestCase.testCase)
+      }))
+    }));
+  }, []);
+
   const addFolder = useCallback((name: string) => {
-    const newFolder: Folder = {
-      id: `folder-${Date.now()}`,
-      name,
-      collections: [],
-    };
-    setFolders(prev => [...prev, newFolder]);
-    toast({ title: "Folder Created", description: `Folder "${name}" has been added.` });
-  }, [toast]);
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    vscode.postMessage({
+      command: 'createFolder',
+      payload: { name, parentPath: workspaceTree.rootPath }
+    });
+  }, [workspaceTree, toast]);
 
   const addCollection = useCallback((folderId: string, name: string) => {
-    setFolders(prevFolders => prevFolders.map(folder => {
-      if (folder.id === folderId) {
-        const newCollection: Collection = {
-          id: `collection-${Date.now()}`,
-          name,
-          folderId,
-          testCases: [],
-        };
-        return {
-          ...folder,
-          collections: [...folder.collections, newCollection],
-        };
-      }
-      return folder;
-    }));
-    toast({ title: "Collection Created", description: `Collection "${name}" has been added.` });
-  }, [toast]);
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    const folder = workspaceTree.folders.find(f => f.id === folderId);
+    if (!folder) {
+      toast({ title: "Error", description: "Folder not found", variant: "destructive" });
+      return;
+    }
+    
+    vscode.postMessage({
+      command: 'createCollection',
+      payload: { name, folderPath: folder.path }
+    });
+  }, [workspaceTree, toast]);
 
   const addTestCase = useCallback((collectionId: string, name: string) => {
-    setFolders(prevFolders => prevFolders.map(folder => {
-      return {
-        ...folder,
-        collections: folder.collections.map(collection => {
-          if (collection.id === collectionId) {
-            const newTestCase: TestCase = {
-              id: `test-${Date.now()}`,
-              name,
-              collectionId,
-              steps: [],
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            };
-            return {
-              ...collection,
-              testCases: [...collection.testCases, newTestCase],
-            };
-          }
-          return collection;
-        }),
-      };
-    }));
-    toast({ title: "Test Case Created", description: `Test case "${name}" has been added.` });
-  }, [toast]);
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    // Find the collection path
+    let collectionPath = '';
+    for (const folder of workspaceTree.folders) {
+      const collection = folder.collections.find(c => c.id === collectionId);
+      if (collection) {
+        collectionPath = collection.path;
+        break;
+      }
+    }
+    
+    if (!collectionPath) {
+      toast({ title: "Error", description: "Collection not found", variant: "destructive" });
+      return;
+    }
+    
+    const newTestCase: TestCase = {
+      id: `test-${Date.now()}`,
+      name,
+      collectionId,
+      steps: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    vscode.postMessage({
+      command: 'saveTestCase',
+      payload: { testCase: newTestCase, collectionPath }
+    });
+  }, [workspaceTree, toast]);
 
   const handleUpdateTestCase = (updatedTestCase: TestCase) => {
-    setFolders(prevFolders =>
-      prevFolders.map(folder => ({
-        ...folder,
-        collections: folder.collections.map(collection => {
-          if (collection.id === updatedTestCase.collectionId) {
-            return {
-              ...collection,
-              testCases: collection.testCases.map(tc =>
-                tc.id === updatedTestCase.id ? updatedTestCase : tc
-              ),
-            };
-          }
-          return collection;
-        }),
-      }))
-    );
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    // Find the collection path for this test case
+    let collectionPath = '';
+    for (const folder of workspaceTree.folders) {
+      const collection = folder.collections.find(c => c.id === updatedTestCase.collectionId);
+      if (collection) {
+        collectionPath = collection.path;
+        break;
+      }
+    }
+    
+    if (!collectionPath) {
+      toast({ title: "Error", description: "Collection not found for test case", variant: "destructive" });
+      return;
+    }
+    
+    // Save the updated test case to file system
+    vscode.postMessage({
+      command: 'saveTestCase',
+      payload: { testCase: updatedTestCase, collectionPath }
+    });
+    
     setSelectedTestCase(updatedTestCase);
   };
 
   const handleMessage = useCallback((event: MessageEvent) => {
-    const message = event.data as { command: string; payload: unknown };
+    const message = event.data as { command: string; payload: any };
     console.log('[DEBUG:Index.tsx] Received message from extension:', message);
 
     switch (message.command) {
+      case 'workspaceInitialized': {
+        const { workspaceTree } = message.payload as { workspaceTree: WorkspaceTree };
+        setWorkspaceTree(workspaceTree);
+        setFolders(convertWorkspaceToFolders(workspaceTree));
+        setIsWorkspaceInitialized(true);
+        toast({ title: "Workspace Loaded", description: `Loaded ${workspaceTree.folders.length} folders` });
+        break;
+      }
+      
+      case 'fileSystemChanged': {
+        const { workspaceTree } = message.payload as { workspaceTree: WorkspaceTree };
+        setWorkspaceTree(workspaceTree);
+        setFolders(convertWorkspaceToFolders(workspaceTree));
+        break;
+      }
+      
+      case 'workspaceError': {
+        const { error } = message.payload as { error: string };
+        toast({ title: "Workspace Error", description: error, variant: "destructive" });
+        break;
+      }
+      
       case 'inputBoxResult': {
-        const { value, context } = message.payload;
+        const { value, context } = message.payload as { value?: string; context: any };
         if (!value) return;
 
         switch (context.type) {
@@ -444,6 +451,7 @@ const Index = () => {
         }
         break;
       }
+      
       case 'testResult': {
         setIsExecuting(false);
         if (!message.payload) {
@@ -457,7 +465,8 @@ const Index = () => {
           console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
           runStartTime.current = null;
         }
-        const { parsedResults, validationResults, ...karateSummary } = message.payload;
+        const payload = message.payload as unknown;
+        const { parsedResults, validationResults, ...karateSummary } = payload;
         setTestResults(karateSummary);
         setStepResults(parsedResults || []);
         setValidationResults(validationResults || []);
@@ -471,17 +480,19 @@ const Index = () => {
         });
         break;
       }
+      
       case 'testExecutionError': {
         setIsExecuting(false);
+        const { message: errorMessage } = message.payload as { message?: string };
         toast({
           title: "Execution Error",
-          description: message.payload.message || 'An unknown error occurred in the extension.',
+          description: errorMessage || 'An unknown error occurred in the extension.',
           variant: "destructive",
         });
         break;
       }
     }
-  }, [toast, addFolder, addCollection, addTestCase]);
+  }, [toast, addFolder, addCollection, addTestCase, convertWorkspaceToFolders]);
 
   useEffect(() => {
     window.addEventListener('message', handleMessage);
@@ -489,6 +500,16 @@ const Index = () => {
       window.removeEventListener('message', handleMessage);
     };
   }, [handleMessage]);
+
+  // Initialize workspace on component mount
+  useEffect(() => {
+    if (!isWorkspaceInitialized) {
+      vscode.postMessage({
+        command: 'initializeWorkspace',
+        payload: {}
+      });
+    }
+  }, [isWorkspaceInitialized]);
 
   const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
@@ -523,6 +544,18 @@ const Index = () => {
       setIsExecuting(false);
     }
   };
+
+  if (!isWorkspaceInitialized) {
+    return (
+      <div className="h-screen bg-background text-foreground flex flex-col items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <h2 className="text-lg font-medium mb-2">Initializing QATO Workspace</h2>
+          <p className="text-sm text-muted-foreground">Please select a folder for your test cases...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col theme-transition overflow-hidden">

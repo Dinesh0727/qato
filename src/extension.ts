@@ -3,12 +3,19 @@ import * as cp from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { QATO_CONFIG, buildErrorRegex, isDbError } from './config';
+import { WorkspaceManager } from './workspaceManager';
+import { WorkspaceMessage, WorkspaceTree } from './workspaceTypes';
 
 let dbAccessProcess: cp.ChildProcess | null = null;
+let workspaceManager: WorkspaceManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('[DEBUG:extension.ts] Activating extension.');
-    let showPanelCommand = vscode.commands.registerCommand('qato.showPanel', () => {
+    
+    // Initialize workspace manager
+    workspaceManager = new WorkspaceManager();
+    
+    let showPanelCommand = vscode.commands.registerCommand('qato.showPanel', async () => {
         console.log('[DEBUG:extension.ts] showPanel command triggered.');
         const panel = vscode.window.createWebviewPanel(
             'qatoPanel',
@@ -31,33 +38,13 @@ export function activate(context: vscode.ExtensionContext) {
         );
         panel.webview.html = finalHtml;
 
+        // Initialize workspace on panel creation
+        await initializeWorkspaceForPanel(panel);
+
         panel.webview.onDidReceiveMessage(
             async message => { // Make the handler async
                 console.log('[DEBUG:extension.ts] Received message from webview:', message);
-                switch (message.command) {
-                    case 'runGeneratedTest':
-                        runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
-                        break;
-
-                    // --- ADD THIS NEW CASE ---
-                    case 'showInputBox': {
-                        const { prompt, placeholder, context: messageContext } = message.payload;
-                        const result = await vscode.window.showInputBox({
-                            prompt: prompt,
-                            placeHolder: placeholder,
-                        });
-
-                        // Send the result back to the webview, including the original context
-                        panel.webview.postMessage({
-                            command: 'inputBoxResult',
-                            payload: {
-                                value: result, // Will be undefined if the user cancels
-                                context: messageContext
-                            }
-                        });
-                        break;
-                    }
-                }
+                await handleWebviewMessage(message, panel, context);
             },
             undefined,
             context.subscriptions
@@ -66,10 +53,194 @@ export function activate(context: vscode.ExtensionContext) {
         panel.onDidDispose(() => {
             console.log('[DEBUG:extension.ts] Webview panel disposed.');
             stopDbAccessService();
+            if (workspaceManager) {
+                workspaceManager.dispose();
+            }
         });
     });
 
     context.subscriptions.push(showPanelCommand);
+}
+
+/**
+ * Initialize workspace for the webview panel
+ */
+async function initializeWorkspaceForPanel(panel: vscode.WebviewPanel) {
+    if (!workspaceManager) {
+        panel.webview.postMessage({
+            command: 'workspaceError',
+            payload: { error: 'Workspace manager not initialized' }
+        });
+        return;
+    }
+
+    // Prompt user to select workspace root
+    const workspaceUri = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Select QATO Workspace Folder',
+        title: 'Choose folder for QATO test cases'
+    });
+
+    if (!workspaceUri || workspaceUri.length === 0) {
+        // User cancelled, send empty workspace
+        panel.webview.postMessage({
+            command: 'workspaceInitialized',
+            payload: { 
+                workspaceTree: { 
+                    rootPath: '', 
+                    folders: [] 
+                } 
+            }
+        });
+        return;
+    }
+
+    const rootUri = workspaceUri[0];
+    
+    // Initialize workspace structure
+    const initResult = await workspaceManager.initializeWorkspace(rootUri);
+    if (!initResult.success) {
+        panel.webview.postMessage({
+            command: 'workspaceError',
+            payload: { error: initResult.error || 'Failed to initialize workspace' }
+        });
+        return;
+    }
+
+    // Load workspace tree
+    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+    if (!treeResult.success || !treeResult.data) {
+        panel.webview.postMessage({
+            command: 'workspaceError',
+            payload: { error: treeResult.error || 'Failed to load workspace tree' }
+        });
+        return;
+    }
+
+    // Send workspace tree to webview
+    panel.webview.postMessage({
+        command: 'workspaceInitialized',
+        payload: { workspaceTree: treeResult.data }
+    });
+
+    // Set up file watcher
+    workspaceManager.setupFileWatcher(rootUri, (updatedTree: WorkspaceTree) => {
+        panel.webview.postMessage({
+            command: 'fileSystemChanged',
+            payload: { workspaceTree: updatedTree }
+        });
+    });
+}
+
+/**
+ * Handle messages from the webview
+ */
+async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
+    if (!workspaceManager) {
+        panel.webview.postMessage({
+            command: 'workspaceError',
+            payload: { error: 'Workspace manager not initialized' }
+        });
+        return;
+    }
+
+    switch (message.command) {
+        case 'runGeneratedTest':
+            runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
+            break;
+
+        case 'showInputBox': {
+            const { prompt, placeholder, context: messageContext } = message.payload;
+            const result = await vscode.window.showInputBox({
+                prompt: prompt,
+                placeHolder: placeholder,
+            });
+
+            // Send the result back to the webview, including the original context
+            panel.webview.postMessage({
+                command: 'inputBoxResult',
+                payload: {
+                    value: result, // Will be undefined if the user cancels
+                    context: messageContext
+                }
+            });
+            break;
+        }
+
+        case 'saveTestCase': {
+            const { testCase, collectionPath } = message.payload;
+            const fileName = `${testCase.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.test.json`;
+            const testCaseUri = vscode.Uri.file(path.join(collectionPath, fileName));
+            
+            const result = await workspaceManager.saveTestCase(testCaseUri, testCase);
+            if (!result.success) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: result.error || 'Failed to save test case' }
+                });
+            }
+            break;
+        }
+
+        case 'createFolder': {
+            const { name, parentPath } = message.payload;
+            const parentUri = parentPath ? vscode.Uri.file(parentPath) : undefined;
+            
+            const result = await workspaceManager.createFolder(name, parentUri);
+            if (!result.success) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: result.error || 'Failed to create folder' }
+                });
+            } else {
+                // Immediately refresh workspace tree after successful folder creation
+                const rootUri = parentUri || workspaceManager.getRootUri();
+                if (rootUri) {
+                    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                    if (treeResult.success && treeResult.data) {
+                        panel.webview.postMessage({
+                            command: 'fileSystemChanged',
+                            payload: { workspaceTree: treeResult.data }
+                        });
+                    }
+                }
+            }
+            break;
+        }
+
+        case 'createCollection': {
+            const { name, folderPath } = message.payload;
+            const folderUri = vscode.Uri.file(folderPath);
+            
+            const result = await workspaceManager.createCollection(name, folderUri);
+            if (!result.success) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: result.error || 'Failed to create collection' }
+                });
+            } else {
+                // Immediately refresh workspace tree after successful collection creation
+                const rootUri = workspaceManager.getRootUri();
+                if (rootUri) {
+                    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                    if (treeResult.success && treeResult.data) {
+                        panel.webview.postMessage({
+                            command: 'fileSystemChanged',
+                            payload: { workspaceTree: treeResult.data }
+                        });
+                    }
+                }
+            }
+            break;
+        }
+
+        case 'initializeWorkspace': {
+            await initializeWorkspaceForPanel(panel);
+            break;
+        }
+    }
 }
 
 function startDbAccessService(context: vscode.ExtensionContext): Promise<void> {
