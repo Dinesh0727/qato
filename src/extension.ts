@@ -236,6 +236,90 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
             break;
         }
 
+        case 'deleteTestCase': {
+            const { testCasePath } = message.payload;
+            const testCaseUri = vscode.Uri.file(testCasePath);
+            
+            try {
+                await vscode.workspace.fs.delete(testCaseUri);
+                // File watcher will automatically update the UI
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: `Failed to delete test case: ${error.message}` }
+                });
+            }
+            break;
+        }
+
+        case 'deleteCollection': {
+            const { collectionPath } = message.payload;
+            const collectionUri = vscode.Uri.file(collectionPath);
+            
+            try {
+                await vscode.workspace.fs.delete(collectionUri, { recursive: true });
+                // File watcher will automatically update the UI
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: `Failed to delete collection: ${error.message}` }
+                });
+            }
+            break;
+        }
+
+        case 'deleteFolder': {
+            const { folderPath } = message.payload;
+            const folderUri = vscode.Uri.file(folderPath);
+            
+            try {
+                await vscode.workspace.fs.delete(folderUri, { recursive: true });
+                // File watcher will automatically update the UI
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: `Failed to delete folder: ${error.message}` }
+                });
+            }
+            break;
+        }
+
+        case 'updateGlobalConfig': {
+            const { config } = message.payload;
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            const result = await workspaceManager.updateGlobalConfig(rootUri, config);
+            if (!result.success) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: result.error || 'Failed to update global config' }
+                });
+            }
+            break;
+        }
+
+        case 'updateFolderConfig': {
+            const { folderPath, config } = message.payload;
+            const folderUri = vscode.Uri.file(folderPath);
+            
+            const result = await workspaceManager.updateFolderConfig(folderUri, config);
+            if (!result.success) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: result.error || 'Failed to update folder config' }
+                });
+            }
+            break;
+        }
+
         case 'initializeWorkspace': {
             await initializeWorkspaceForPanel(panel);
             break;

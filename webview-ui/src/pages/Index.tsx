@@ -403,8 +403,133 @@ const Index = () => {
     setSelectedTestCase(updatedTestCase);
   };
 
+  const handleDeleteTestCase = useCallback((testCase: TestCase) => {
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    // Find the test case file path
+    let testCasePath = '';
+    for (const folder of workspaceTree.folders) {
+      for (const collection of folder.collections) {
+        const wsTestCase = collection.testCases.find(tc => tc.testCase.id === testCase.id);
+        if (wsTestCase) {
+          testCasePath = wsTestCase.path;
+          break;
+        }
+      }
+      if (testCasePath) break;
+    }
+    
+    if (!testCasePath) {
+      toast({ title: "Error", description: "Test case file not found", variant: "destructive" });
+      return;
+    }
+    
+    // Clear selection if deleting the currently selected test case
+    if (selectedTestCase?.id === testCase.id) {
+      setSelectedTestCase(null);
+    }
+    
+    // Send delete command to extension
+    vscode.postMessage({
+      command: 'deleteTestCase',
+      payload: { testCasePath }
+    });
+    
+    toast({ title: "Test Case Deleted", description: `"${testCase.name}" has been deleted.` });
+  }, [workspaceTree, selectedTestCase, toast]);
+
+  const handleDeleteCollection = useCallback((folderId: string, collectionId: string) => {
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    // Find the collection path
+    let collectionPath = '';
+    let collectionName = '';
+    for (const folder of workspaceTree.folders) {
+      if (folder.id === folderId) {
+        const collection = folder.collections.find(c => c.id === collectionId);
+        if (collection) {
+          collectionPath = collection.path;
+          collectionName = collection.name;
+          break;
+        }
+      }
+    }
+    
+    if (!collectionPath) {
+      toast({ title: "Error", description: "Collection not found", variant: "destructive" });
+      return;
+    }
+    
+    // Clear selection if deleting a collection that contains the selected test case
+    if (selectedTestCase?.collectionId === collectionId) {
+      setSelectedTestCase(null);
+    }
+    
+    // Send delete command to extension
+    vscode.postMessage({
+      command: 'deleteCollection',
+      payload: { collectionPath }
+    });
+    
+    toast({ title: "Collection Deleted", description: `"${collectionName}" and all its test cases have been deleted.` });
+  }, [workspaceTree, selectedTestCase, toast]);
+
+  const handleDeleteFolder = useCallback((folderId: string) => {
+    if (!workspaceTree) {
+      toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
+      return;
+    }
+    
+    // Find the folder path
+    const folder = workspaceTree.folders.find(f => f.id === folderId);
+    if (!folder) {
+      toast({ title: "Error", description: "Folder not found", variant: "destructive" });
+      return;
+    }
+    
+    // Clear selection if deleting a folder that contains the selected test case
+    if (selectedTestCase) {
+      const containsSelectedTestCase = folder.collections.some(c => 
+        c.testCases.some(tc => tc.testCase.id === selectedTestCase.id)
+      );
+      if (containsSelectedTestCase) {
+        setSelectedTestCase(null);
+      }
+    }
+    
+    // Send delete command to extension
+    vscode.postMessage({
+      command: 'deleteFolder',
+      payload: { folderPath: folder.path }
+    });
+    
+    toast({ title: "Folder Deleted", description: `"${folder.name}" and all its contents have been deleted.` });
+  }, [workspaceTree, selectedTestCase, toast]);
+
+  const handleUpdateGlobalConfig = useCallback((config: any) => {
+    if (!workspaceTree) return;
+    
+    vscode.postMessage({
+      command: 'updateGlobalConfig',
+      payload: { config }
+    });
+  }, [workspaceTree]);
+
+  const handleUpdateFolderConfig = useCallback((folderPath: string, config: unknown) => {
+    vscode.postMessage({
+      command: 'updateFolderConfig',
+      payload: { folderPath, config }
+    });
+  }, []);
+
   const handleMessage = useCallback((event: MessageEvent) => {
-    const message = event.data as { command: string; payload: any };
+    const message = event.data as { command: string; payload: unknown };
     console.log('[DEBUG:Index.tsx] Received message from extension:', message);
 
     switch (message.command) {
@@ -431,7 +556,7 @@ const Index = () => {
       }
       
       case 'inputBoxResult': {
-        const { value, context } = message.payload as { value?: string; context: any };
+        const { value, context } = message.payload as { value?: string; context: unknown };
         if (!value) return;
 
         switch (context.type) {
@@ -557,9 +682,18 @@ const Index = () => {
     );
   }
 
+  const globalConfig = workspaceTree?.globalConfig || {
+    version: '1.0.0',
+    databases: [],
+    defaultDatabaseConnections: {}
+  };
+
   return (
     <div className="h-screen bg-background text-foreground flex flex-col theme-transition overflow-hidden">
-      <Header />
+      <Header 
+        globalConfig={globalConfig}
+        onUpdateGlobalConfig={handleUpdateGlobalConfig}
+      />
 
       <div className="flex-1 flex min-h-0">
         <TestNavigator
@@ -567,6 +701,11 @@ const Index = () => {
           onToggleCollapse={() => setIsNavigatorCollapsed(!isNavigatorCollapsed)}
           selectedTestCase={selectedTestCase}
           onSelectTestCase={setSelectedTestCase}
+          onDeleteTestCase={handleDeleteTestCase}
+          onDeleteCollection={handleDeleteCollection}
+          onDeleteFolder={handleDeleteFolder}
+          workspaceFolders={workspaceTree?.folders}
+          onUpdateFolderConfig={handleUpdateFolderConfig}
           vscode={vscode}
           folders={folders}
         />

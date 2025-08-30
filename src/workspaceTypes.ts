@@ -140,7 +140,26 @@ export interface WorkspaceTestCase {
 }
 
 /**
- * Global workspace configuration (future use)
+ * Database connection configuration
+ */
+export interface DatabaseConfig {
+  id: string;
+  name: string;
+  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionString?: string;
+  timeout?: number;
+  maxConnections?: number;
+  ssl?: boolean;
+  description?: string;
+}
+
+/**
+ * Global workspace configuration
  */
 export interface GlobalConfig {
   version: string;
@@ -148,15 +167,27 @@ export interface GlobalConfig {
     timeout?: number;
     retryCount?: number;
   };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string; // Database ID to use as default for SQL steps
+    redis?: string; // Database ID to use as default for Redis steps
+    clickhouse?: string; // Database ID to use as default for ClickHouse steps
+  };
 }
 
 /**
- * Folder-level configuration (future use)
+ * Folder-level configuration
  */
 export interface FolderConfig {
   description?: string;
   defaultCollectionSettings?: {
     timeout?: number;
+  };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string;
+    redis?: string;
+    clickhouse?: string;
   };
 }
 
@@ -181,6 +212,10 @@ export type WorkspaceMessage =
   | { command: 'createFolder'; payload: { name: string; parentPath: string } }
   | { command: 'createCollection'; payload: { name: string; folderPath: string } }
   | { command: 'deleteTestCase'; payload: { testCasePath: string } }
+  | { command: 'deleteCollection'; payload: { collectionPath: string } }
+  | { command: 'deleteFolder'; payload: { folderPath: string } }
+  | { command: 'updateGlobalConfig'; payload: { config: GlobalConfig } }
+  | { command: 'updateFolderConfig'; payload: { folderPath: string; config: FolderConfig } }
   | { command: 'fileSystemChanged'; payload: { workspaceTree: WorkspaceTree } }
   | { command: 'workspaceError'; payload: { error: string } };
 

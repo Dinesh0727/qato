@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { FolderSettingsDialog } from '@/components/FolderSettingsDialog';
 import { Folder as FolderType, TestCase as TestCaseType } from '@/types';
 
 // Define the structure of the VS Code API object
@@ -9,17 +11,53 @@ interface VsCodeApi {
   postMessage(message: { command: string; payload: unknown }): void;
 }
 
-interface VsCodeApi {
-  postMessage(message: { command: string; payload: unknown }): void;
+interface DatabaseConfig {
+  id: string;
+  name: string;
+  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionString?: string;
+  timeout?: number;
+  maxConnections?: number;
+  ssl?: boolean;
+  description?: string;
+}
+
+interface FolderConfig {
+  description?: string;
+  defaultCollectionSettings?: {
+    timeout?: number;
+  };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string;
+    redis?: string;
+    clickhouse?: string;
+  };
+}
+
+interface WorkspaceFolder {
+  id: string;
+  name: string;
+  path: string;
+  config?: FolderConfig;
 }
 
 interface TestNavigatorProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  // This was missing from your props, but is used in the component. Add it back.
   folders: FolderType[]; 
+  workspaceFolders?: WorkspaceFolder[];
   selectedTestCase: TestCaseType | null;
   onSelectTestCase: (testCase: TestCaseType) => void;
+  onDeleteTestCase?: (testCase: TestCaseType) => void;
+  onDeleteCollection?: (folderId: string, collectionId: string) => void;
+  onDeleteFolder?: (folderId: string) => void;
+  onUpdateFolderConfig?: (folderPath: string, config: FolderConfig) => void;
   vscode: VsCodeApi;
 }
 
@@ -27,13 +65,31 @@ export const TestNavigator = ({
   isCollapsed,
   onToggleCollapse,
   folders,
+  workspaceFolders,
   selectedTestCase,
   onSelectTestCase,
+  onDeleteTestCase,
+  onDeleteCollection,
+  onDeleteFolder,
+  onUpdateFolderConfig,
   vscode,
 }: TestNavigatorProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(folders.map(f => f.id)));
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(new Set(folders.flatMap(f => f.collections.map(c => c.id))));
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {}
+  });
 
   const toggleFolder = (folderId: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -134,13 +190,51 @@ export const TestNavigator = ({
               </Button>
               <Folder className="h-4 w-4 text-blue-500 mx-2"/>
               <span className="text-sm text-foreground flex-1">{folder.name}</span>
-              <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 p-0 w-6 h-6 transition-opacity duration-200" onClick={() => handleRequestInput({
-                type: 'addCollection',
-                prompt: "Enter new collection name:",
-                folderId: folder.id
-              })}>
-                <Plus className="h-3 w-3"/>
-              </Button>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                {workspaceFolders && onUpdateFolderConfig && (() => {
+                  const workspaceFolder = workspaceFolders.find(wf => wf.id === folder.id);
+                  if (workspaceFolder) {
+                    return (
+                      <FolderSettingsDialog
+                        folderName={workspaceFolder.name}
+                        folderPath={workspaceFolder.path}
+                        folderConfig={workspaceFolder.config || { databases: [] }}
+                        onUpdateFolderConfig={onUpdateFolderConfig}
+                      />
+                    );
+                  }
+                  return null;
+                })()}
+                <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
+                  type: 'addCollection',
+                  prompt: "Enter new collection name:",
+                  folderId: folder.id
+                })}>
+                  <Plus className="h-3 w-3"/>
+                </Button>
+                {onDeleteFolder && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const testCaseCount = folder.collections.reduce((acc, c) => acc + c.testCases.length, 0);
+                      setConfirmDialog({
+                        open: true,
+                        title: 'Delete Folder',
+                        description: `Are you sure you want to delete "${folder.name}"? This will permanently delete ${folder.collections.length} collection(s) and ${testCaseCount} test case(s). This action cannot be undone.`,
+                        onConfirm: () => {
+                          onDeleteFolder(folder.id);
+                          setConfirmDialog(prev => ({ ...prev, open: false }));
+                        }
+                      });
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3"/>
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Collections */}
@@ -153,22 +247,66 @@ export const TestNavigator = ({
                     </Button>
                     <FileText className="h-4 w-4 text-green-500 mx-2"/>
                     <span className="text-sm text-foreground flex-1">{collection.name}</span>
-                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 p-0 w-6 h-6 transition-opacity duration-200" onClick={() => handleRequestInput({
-                      type: 'addTestCase',
-                      prompt: "Enter new test case name:",
-                      collectionId: collection.id
-                    })}>
-                      <Plus className="h-3 w-3"/>
-                    </Button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
+                        type: 'addTestCase',
+                        prompt: "Enter new test case name:",
+                        collectionId: collection.id
+                      })}>
+                        <Plus className="h-3 w-3"/>
+                      </Button>
+                      {onDeleteCollection && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDialog({
+                              open: true,
+                              title: 'Delete Collection',
+                              description: `Are you sure you want to delete "${collection.name}"? This will permanently delete ${collection.testCases.length} test case(s). This action cannot be undone.`,
+                              onConfirm: () => {
+                                onDeleteCollection(folder.id, collection.id);
+                                setConfirmDialog(prev => ({ ...prev, open: false }));
+                              }
+                            });
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3"/>
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Test Cases */}
                   <div className={`ml-4 overflow-hidden transition-all duration-300 ease-in-out ${expandedCollections.has(collection.id) ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0'}`}>
                     {collection.testCases.map((testCase) => (
-                      <div key={testCase.id} className={`flex items-center hover:bg-accent rounded px-2 py-1 cursor-pointer transition-all duration-200 ${selectedTestCase?.id === testCase.id ? 'bg-primary/10 border border-primary/30' : ''}`} onClick={() => onSelectTestCase(testCase)}>
+                      <div key={testCase.id} className={`flex items-center group hover:bg-accent rounded px-2 py-1 cursor-pointer transition-all duration-200 ${selectedTestCase?.id === testCase.id ? 'bg-primary/10 border border-primary/30' : ''}`}>
                         <div className="w-6"/>
                         <div className="h-2 w-2 bg-orange-500 rounded-full mx-2"/>
-                        <span className="text-sm text-foreground">{testCase.name}</span>
+                        <span className="text-sm text-foreground flex-1" onClick={() => onSelectTestCase(testCase)}>{testCase.name}</span>
+                        {onDeleteTestCase && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="opacity-0 group-hover:opacity-100 p-0 w-6 h-6 transition-opacity duration-200 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDialog({
+                                open: true,
+                                title: 'Delete Test Case',
+                                description: `Are you sure you want to delete "${testCase.name}"? This action cannot be undone.`,
+                                onConfirm: () => {
+                                  onDeleteTestCase(testCase);
+                                  setConfirmDialog(prev => ({ ...prev, open: false }));
+                                }
+                              });
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3"/>
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -185,6 +323,18 @@ export const TestNavigator = ({
           </div>
         )}
       </div>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDialog.onConfirm}
+        variant="destructive"
+      />
     </div>
   );
 };

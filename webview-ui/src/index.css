@@ -98,18 +98,49 @@
   /* Custom scrollbar for both themes */
   ::-webkit-scrollbar {
     width: 8px;
+    height: 8px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-muted;
+    background: hsl(var(--background));
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded;
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+    border: 1px solid hsl(var(--background));
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground;
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Light mode specific scrollbar styles */
+  :root:not(.dark) ::-webkit-scrollbar-track {
+    background: #ffffff;
+  }
+
+  :root:not(.dark) ::-webkit-scrollbar-thumb {
+    background: #e5e7eb;
+    border: 1px solid #ffffff;
+  }
+
+  :root:not(.dark) ::-webkit-scrollbar-thumb:hover {
+    background: #d1d5db;
+  }
+
+  /* Prevent layout shift when modal opens */
+  body:has([data-state="open"]) {
+    overflow: hidden;
+  }
+
+  /* Ensure dialogs don't cause layout shifts */
+  [data-radix-portal] {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 50;
   }
 }
 
