@@ -54,6 +54,52 @@ export class WorkspaceManager {
           defaultSettings: {
             timeout: 30000,
             retryCount: 3
+          },
+          databases: [
+            {
+              id: 'default-mysql',
+              name: 'Default MySQL',
+              type: 'mysql',
+              host: 'localhost',
+              port: 3306,
+              database: 'test',
+              username: 'root',
+              password: '',
+              timeout: 30000,
+              maxConnections: 10,
+              ssl: false,
+              description: 'Default MySQL connection for testing'
+            },
+            {
+              id: 'default-redis',
+              name: 'Default Redis',
+              type: 'redis',
+              host: 'localhost',
+              port: 6379,
+              timeout: 30000,
+              maxConnections: 10,
+              ssl: false,
+              description: 'Default Redis connection for caching and session storage'
+            },
+            {
+              id: 'default-clickhouse',
+              name: 'Default ClickHouse',
+              type: 'clickhouse',
+              host: 'localhost',
+              port: 9000,
+              database: 'default',
+              username: 'default',
+              password: '',
+              timeout: 30000,
+              maxConnections: 10,
+              ssl: false,
+              description: 'Default ClickHouse connection for analytics'
+            }
+          ],
+          defaultDatabaseConnections: {
+            sql: 'default-mysql',
+            redis: 'default-redis',
+            clickhouse: 'default-clickhouse'
           }
         };
         const configContent = JSON.stringify(defaultConfig, null, 2);
@@ -384,6 +430,42 @@ export class WorkspaceManager {
     if (this.fileWatcher) {
       this.fileWatcher.dispose();
       this.fileWatcher = null;
+    }
+  }
+
+  /**
+   * Update global configuration
+   */
+  async updateGlobalConfig(rootUri: vscode.Uri, config: GlobalConfig): Promise<FileSystemResult<void>> {
+    try {
+      const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
+      const configContent = JSON.stringify(config, null, 2);
+      await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
+      
+      return { success: true };
+    } catch (error: any) {
+      return { 
+        success: false, 
+        error: `Failed to update global config: ${error.message}` 
+      };
+    }
+  }
+
+  /**
+   * Update folder configuration
+   */
+  async updateFolderConfig(folderUri: vscode.Uri, config: FolderConfig): Promise<FileSystemResult<void>> {
+    try {
+      const configPath = vscode.Uri.joinPath(folderUri, 'folder-config.json');
+      const configContent = JSON.stringify(config, null, 2);
+      await vscode.workspace.fs.writeFile(configPath, Buffer.from(configContent, 'utf8'));
+      
+      return { success: true };
+    } catch (error: any) {
+      return { 
+        success: false, 
+        error: `Failed to update folder config: ${error.message}` 
+      };
     }
   }
 

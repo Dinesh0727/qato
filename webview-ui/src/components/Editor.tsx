@@ -20,7 +20,16 @@ interface EditorProps {
   validationResults: ValidationResult[];
 }
 
-export const Editor = ({ testCase, onUpdateTestCase, onRunTestCase, isExecuting, executionLogs, testResults, stepResults, validationResults }: EditorProps) => {
+export const Editor = ({ 
+  testCase, 
+  onUpdateTestCase, 
+  onRunTestCase, 
+  isExecuting, 
+  executionLogs, 
+  testResults, 
+  stepResults, 
+  validationResults
+}: EditorProps) => {
   const [showAddStep, setShowAddStep] = useState(false);
   const { toast } = useToast();
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { FlowControlConfig } from '@/types';
-import { AlertTriangle, CheckCircle, Settings } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface FlowControlSettingsProps {
   config: FlowControlConfig;
@@ -16,14 +16,15 @@ interface FlowControlSettingsProps {
   disabled?: boolean;
 }
 
-export const FlowControlSettings = ({ 
-  config, 
-  onConfigChange, 
+export const FlowControlSettings = ({
+  config,
+  onConfigChange,
   onSave,
-  disabled = false 
+  disabled = false
 }: FlowControlSettingsProps) => {
   const [localConfig, setLocalConfig] = useState<FlowControlConfig>(config);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false); // Default collapsed
 
   const handleConfigUpdate = (updates: Partial<FlowControlConfig>) => {
     const newConfig = { ...localConfig, ...updates };
@@ -74,164 +75,185 @@ export const FlowControlSettings = ({
 
   return (
     <Card className="w-full">
-      <CardHeader>
+      <CardHeader className="cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Flow Control Settings
-            </CardTitle>
-            <CardDescription>
-              Configure how test execution behaves when validations fail
-            </CardDescription>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="p-0 w-6 h-6">
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Flow Control Settings
+              </CardTitle>
+              {!isExpanded && (
+                <CardDescription className="text-xs">
+                  {executionMode.mode} • Click to configure
+                </CardDescription>
+              )}
+            </div>
           </div>
-          {hasChanges && (
-            <Badge variant="outline" className="text-warning border-warning">
-              Unsaved Changes
-            </Badge>
-          )}
+          <div className="flex items-center gap-2">
+            {hasChanges && (
+              <Badge variant="outline" className="text-warning border-warning">
+                Unsaved Changes
+              </Badge>
+            )}
+            {!isExpanded && (
+              <Badge variant="outline" className={executionMode.color}>
+                {executionMode.mode}
+              </Badge>
+            )}
+          </div>
         </div>
+        {isExpanded && (
+          <CardDescription>
+            Configure how test execution behaves when validations fail
+          </CardDescription>
+        )}
       </CardHeader>
 
-      <CardContent className="space-y-6">
-        {/* Current Mode Display */}
-        <div className={`p-3 rounded-lg border ${executionMode.color}`}>
-          <div className="flex items-center gap-2 mb-1">
-            {executionMode.icon}
-            <span className="font-medium">{executionMode.mode}</span>
+      {isExpanded && (
+        <CardContent className="space-y-6">
+          {/* Current Mode Display */}
+          <div className={`p-3 rounded-lg border ${executionMode.color}`}>
+            <div className="flex items-center gap-2 mb-1">
+              {executionMode.icon}
+              <span className="font-medium">{executionMode.mode}</span>
+            </div>
+            <p className="text-sm opacity-90">{executionMode.description}</p>
           </div>
-          <p className="text-sm opacity-90">{executionMode.description}</p>
-        </div>
 
-        <Separator />
+          <Separator />
 
-        {/* Execution Behavior Settings */}
-        <div className="space-y-4">
-          <h4 className="font-medium text-sm text-foreground">Execution Behavior</h4>
-          
+          {/* Execution Behavior Settings */}
+          <div className="space-y-4">
+            <h4 className="font-medium text-sm text-foreground">Execution Behavior</h4>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="stop-on-failure" className="text-sm font-medium">
+                    Stop on First Failure
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Halt execution immediately when any validation fails
+                  </p>
+                </div>
+                <Switch
+                  id="stop-on-failure"
+                  checked={localConfig.stopOnFailure}
+                  onCheckedChange={(checked) =>
+                    handleConfigUpdate({
+                      stopOnFailure: checked,
+                      continueOnFailure: !checked
+                    })
+                  }
+                  disabled={disabled}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="continue-on-failure" className="text-sm font-medium">
+                    Continue on Failure
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Execute all steps regardless of validation failures
+                  </p>
+                </div>
+                <Switch
+                  id="continue-on-failure"
+                  checked={localConfig.continueOnFailure}
+                  onCheckedChange={(checked) =>
+                    handleConfigUpdate({
+                      continueOnFailure: checked,
+                      stopOnFailure: !checked
+                    })
+                  }
+                  disabled={disabled}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="skip-remaining" className="text-sm font-medium">
+                    Skip Remaining Steps
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Skip all remaining steps when threshold is reached
+                  </p>
+                </div>
+                <Switch
+                  id="skip-remaining"
+                  checked={localConfig.skipRemainingSteps}
+                  onCheckedChange={(checked) =>
+                    handleConfigUpdate({ skipRemainingSteps: checked })
+                  }
+                  disabled={disabled}
+                />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Failure Threshold */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="stop-on-failure" className="text-sm font-medium">
-                  Stop on First Failure
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Halt execution immediately when any validation fails
-                </p>
-              </div>
-              <Switch
-                id="stop-on-failure"
-                checked={localConfig.stopOnFailure}
-                onCheckedChange={(checked) => 
-                  handleConfigUpdate({ 
-                    stopOnFailure: checked,
-                    continueOnFailure: !checked 
+            <h4 className="font-medium text-sm text-foreground">Failure Threshold</h4>
+            <div className="flex items-center gap-3">
+              <Label htmlFor="failure-threshold" className="text-sm whitespace-nowrap">
+                Max Failures:
+              </Label>
+              <Input
+                id="failure-threshold"
+                type="number"
+                min="1"
+                max="100"
+                value={localConfig.failureThreshold}
+                onChange={(e) =>
+                  handleConfigUpdate({
+                    failureThreshold: Math.max(1, parseInt(e.target.value) || 1)
                   })
                 }
+                className="w-20"
                 disabled={disabled}
               />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="continue-on-failure" className="text-sm font-medium">
-                  Continue on Failure
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Execute all steps regardless of validation failures
-                </p>
-              </div>
-              <Switch
-                id="continue-on-failure"
-                checked={localConfig.continueOnFailure}
-                onCheckedChange={(checked) => 
-                  handleConfigUpdate({ 
-                    continueOnFailure: checked,
-                    stopOnFailure: !checked 
-                  })
-                }
-                disabled={disabled}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="skip-remaining" className="text-sm font-medium">
-                  Skip Remaining Steps
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Skip all remaining steps when threshold is reached
-                </p>
-              </div>
-              <Switch
-                id="skip-remaining"
-                checked={localConfig.skipRemainingSteps}
-                onCheckedChange={(checked) => 
-                  handleConfigUpdate({ skipRemainingSteps: checked })
-                }
-                disabled={disabled}
-              />
+              <p className="text-xs text-muted-foreground">
+                Stop execution after this many failures
+              </p>
             </div>
           </div>
-        </div>
 
-        <Separator />
+          <Separator />
 
-        {/* Failure Threshold */}
-        <div className="space-y-3">
-          <h4 className="font-medium text-sm text-foreground">Failure Threshold</h4>
-          <div className="flex items-center gap-3">
-            <Label htmlFor="failure-threshold" className="text-sm whitespace-nowrap">
-              Max Failures:
-            </Label>
-            <Input
-              id="failure-threshold"
-              type="number"
-              min="1"
-              max="100"
-              value={localConfig.failureThreshold}
-              onChange={(e) => 
-                handleConfigUpdate({ 
-                  failureThreshold: Math.max(1, parseInt(e.target.value) || 1) 
-                })
-              }
-              className="w-20"
-              disabled={disabled}
-            />
-            <p className="text-xs text-muted-foreground">
-              Stop execution after this many failures
-            </p>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Action Buttons */}
-        <div className="flex items-center justify-between pt-2">
-          <div className="text-xs text-muted-foreground">
-            {hasChanges ? 'Changes will be applied to this test case' : 'No pending changes'}
-          </div>
-          <div className="flex gap-2">
-            {hasChanges && (
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs text-muted-foreground">
+              {hasChanges ? 'Changes will be applied to this test case' : 'No pending changes'}
+            </div>
+            <div className="flex gap-2">
+              {hasChanges && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReset}
+                  disabled={disabled}
+                >
+                  Reset
+                </Button>
+              )}
               <Button
-                variant="outline"
                 size="sm"
-                onClick={handleReset}
-                disabled={disabled}
+                onClick={handleSave}
+                disabled={disabled || !hasChanges}
               >
-                Reset
+                {hasChanges ? 'Save Changes' : 'Saved'}
               </Button>
-            )}
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={disabled || !hasChanges}
-            >
-              {hasChanges ? 'Save Changes' : 'Saved'}
-            </Button>
+            </div>
           </div>
-        </div>
-      </CardContent>
+        </CardContent>
+      )}
     </Card>
   );
 };

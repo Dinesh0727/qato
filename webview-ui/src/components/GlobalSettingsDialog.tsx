@@ -1,0 +1,90 @@
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Settings } from 'lucide-react';
+import { SimpleDatabaseConfig } from './SimpleDatabaseConfig';
+
+interface DatabaseConfig {
+  id: string;
+  name: string;
+  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionString?: string;
+  timeout?: number;
+  maxConnections?: number;
+  ssl?: boolean;
+  description?: string;
+}
+
+interface GlobalConfig {
+  version: string;
+  defaultSettings?: {
+    timeout?: number;
+    retryCount?: number;
+  };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string;
+    redis?: string;
+    clickhouse?: string;
+  };
+}
+
+interface GlobalSettingsDialogProps {
+  globalConfig: GlobalConfig;
+  onUpdateGlobalConfig: (config: GlobalConfig) => void;
+}
+
+export const GlobalSettingsDialog = ({
+  globalConfig,
+  onUpdateGlobalConfig
+}: GlobalSettingsDialogProps) => {
+  const [open, setOpen] = useState(false);
+
+  const handleGlobalDatabasesChange = (databases: DatabaseConfig[]) => {
+    const updatedConfig = {
+      ...globalConfig,
+      databases
+    };
+    onUpdateGlobalConfig(updatedConfig);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+          <Settings className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent 
+        className="max-w-4xl max-h-[80vh] overflow-y-auto" 
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            Global Workspace Settings
+          </DialogTitle>
+          <DialogDescription>
+            Configure global database connections and workspace-level settings that apply to all test cases.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4">
+          <SimpleDatabaseConfig
+            databases={globalConfig.databases || []}
+            onDatabasesChange={handleGlobalDatabasesChange}
+            level="global"
+            title="Global Database Configurations"
+            description="These database connections are available to all test cases in this workspace"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
