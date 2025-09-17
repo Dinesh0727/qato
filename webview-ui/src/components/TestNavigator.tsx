@@ -1,9 +1,17 @@
 import { useState, useMemo } from 'react';
-import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search, Trash2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search, Trash2, Database, Settings } from 'lucide-react';
+import { DatabaseStatusIndicator } from '@/components/DatabaseStatusIndicator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FolderSettingsDialog } from '@/components/FolderSettingsDialog';
+import { 
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { Folder as FolderType, TestCase as TestCaseType } from '@/types';
 
 // Define the structure of the VS Code API object
@@ -27,12 +35,18 @@ interface DatabaseConfig {
   description?: string;
 }
 
+interface DatabaseConfigSet {
+  mysql?: DatabaseConfig;
+  redis?: DatabaseConfig;
+  clickhouse?: DatabaseConfig;
+}
+
 interface FolderConfig {
   description?: string;
   defaultCollectionSettings?: {
     timeout?: number;
   };
-  databases?: DatabaseConfig[];
+  databases?: DatabaseConfigSet;
   defaultDatabaseConnections?: {
     sql?: string;
     redis?: string;
@@ -59,6 +73,7 @@ interface TestNavigatorProps {
   onDeleteFolder?: (folderId: string) => void;
   onUpdateFolderConfig?: (folderPath: string, config: FolderConfig) => void;
   vscode: VsCodeApi;
+  globalDatabases?: DatabaseConfig[];
 }
 
 export const TestNavigator = ({
@@ -73,10 +88,20 @@ export const TestNavigator = ({
   onDeleteFolder,
   onUpdateFolderConfig,
   vscode,
+  globalDatabases = [],
 }: TestNavigatorProps) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(folders.map(f => f.id)));
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(new Set(folders.flatMap(f => f.collections.map(c => c.id))));
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Folder settings dialog state for context menu
+  const [folderSettingsDialog, setFolderSettingsDialog] = useState<{
+    open: boolean;
+    folderId: string | null;
+  }>({
+    open: false,
+    folderId: null
+  });
   
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -119,6 +144,59 @@ export const TestNavigator = ({
         context: context // Pass the whole context object
       }
     });
+  };
+
+  const handleOpenFolderSettings = (folderId: string) => {
+    setFolderSettingsDialog({
+      open: true,
+      folderId: folderId
+    });
+  };
+
+  const handleCloseFolderSettings = () => {
+    setFolderSettingsDialog({
+      open: false,
+      folderId: null
+    });
+  };
+
+  // Helper function to check if a folder has custom database configurations
+  const hasCustomDatabaseConfig = (folderId: string): boolean => {
+    if (!workspaceFolders) return false;
+    const workspaceFolder = workspaceFolders.find(wf => wf.id === folderId);
+    if (!workspaceFolder?.config?.databases) return false;
+    
+    // Check if any database configuration exists
+    const { mysql, redis, clickhouse } = workspaceFolder.config.databases;
+    return !!(mysql || redis || clickhouse);
+  };
+
+  // Helper function to get database configuration count for a folder
+  const getDatabaseConfigCount = (folderId: string): number => {
+    if (!workspaceFolders) return 0;
+    const workspaceFolder = workspaceFolders.find(wf => wf.id === folderId);
+    if (!workspaceFolder?.config?.databases) return 0;
+    
+    const { mysql, redis, clickhouse } = workspaceFolder.config.databases;
+    let count = 0;
+    if (mysql) count++;
+    if (redis) count++;
+    if (clickhouse) count++;
+    return count;
+  };
+
+  // Helper function to get database types configured for a folder
+  const getDatabaseTypes = (folderId: string): string[] => {
+    if (!workspaceFolders) return [];
+    const workspaceFolder = workspaceFolders.find(wf => wf.id === folderId);
+    if (!workspaceFolder?.config?.databases) return [];
+    
+    const { mysql, redis, clickhouse } = workspaceFolder.config.databases;
+    const types: string[] = [];
+    if (mysql) types.push('MySQL');
+    if (redis) types.push('Redis');
+    if (clickhouse) types.push('ClickHouse');
+    return types;
   };
 
   // Filter folders and test cases based on search query
@@ -183,59 +261,124 @@ export const TestNavigator = ({
       <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
         {filteredFolders.map((folder) => (
           <div key={folder.id} className="mb-2">
-            {/* Folder */}
-            <div className="flex items-center group hover:bg-accent rounded px-2 py-1 transition-colors duration-200">
-              <Button variant="ghost" size="sm" onClick={() => toggleFolder(folder.id)} className="p-0 w-6 h-6 text-muted-foreground hover:text-foreground transition-colors duration-200">
-                {expandedFolders.has(folder.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200"/>) : (<ChevronRight className="h-3 w-3 transition-transform duration-200"/>)}
-              </Button>
-              <Folder className="h-4 w-4 text-blue-500 mx-2"/>
-              <span className="text-sm text-foreground flex-1">{folder.name}</span>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                {workspaceFolders && onUpdateFolderConfig && (() => {
-                  const workspaceFolder = workspaceFolders.find(wf => wf.id === folder.id);
-                  if (workspaceFolder) {
+            {/* Folder with Context Menu */}
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="flex items-center group hover:bg-accent rounded px-2 py-1 transition-colors duration-200">
+                  <Button variant="ghost" size="sm" onClick={() => toggleFolder(folder.id)} className="p-0 w-6 h-6 text-muted-foreground hover:text-foreground transition-colors duration-200">
+                    {expandedFolders.has(folder.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200"/>) : (<ChevronRight className="h-3 w-3 transition-transform duration-200"/>)}
+                  </Button>
+                  <Folder className="h-4 w-4 text-blue-500 mx-2"/>
+                  <span className="text-sm text-foreground flex-1">{folder.name}</span>
+                  {hasCustomDatabaseConfig(folder.id) && (() => {
+                    const workspaceFolder = workspaceFolders?.find(wf => wf.id === folder.id);
+                    if (!workspaceFolder?.config?.databases) return null;
+                    
+                    const databases: DatabaseConfig[] = [];
+                    const { mysql, redis, clickhouse } = workspaceFolder.config.databases;
+                    if (mysql) databases.push(mysql);
+                    if (redis) databases.push(redis);
+                    if (clickhouse) databases.push(clickhouse);
+                    
                     return (
-                      <FolderSettingsDialog
-                        folderName={workspaceFolder.name}
-                        folderPath={workspaceFolder.path}
-                        folderConfig={workspaceFolder.config || { databases: [] }}
-                        onUpdateFolderConfig={onUpdateFolderConfig}
-                      />
+                      <div className="mr-2">
+                        <DatabaseStatusIndicator
+                          databases={databases}
+                          level="folder"
+                          size="sm"
+                          showCount={true}
+                          showTypes={false}
+                        />
+                      </div>
                     );
-                  }
-                  return null;
-                })()}
-                <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
+                  })()}
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    {workspaceFolders && onUpdateFolderConfig && (() => {
+                      const workspaceFolder = workspaceFolders.find(wf => wf.id === folder.id);
+                      if (workspaceFolder) {
+                        return (
+                          <FolderSettingsDialog
+                            folderName={workspaceFolder.name}
+                            folderPath={workspaceFolder.path}
+                            folderConfig={workspaceFolder.config || { databases: {} }}
+                            onUpdateFolderConfig={onUpdateFolderConfig}
+                            globalDatabases={globalDatabases}
+                          />
+                        );
+                      }
+                      return null;
+                    })()}
+                    <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
+                      type: 'addCollection',
+                      prompt: "Enter new collection name:",
+                      folderId: folder.id
+                    })}>
+                      <Plus className="h-3 w-3"/>
+                    </Button>
+                    {onDeleteFolder && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const testCaseCount = folder.collections.reduce((acc, c) => acc + c.testCases.length, 0);
+                          setConfirmDialog({
+                            open: true,
+                            title: 'Delete Folder',
+                            description: `Are you sure you want to delete "${folder.name}"? This will permanently delete ${folder.collections.length} collection(s) and ${testCaseCount} test case(s). This action cannot be undone.`,
+                            onConfirm: () => {
+                              onDeleteFolder(folder.id);
+                              setConfirmDialog(prev => ({ ...prev, open: false }));
+                            }
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3"/>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onClick={() => handleOpenFolderSettings(folder.id)}>
+                  <Database className="h-4 w-4 mr-2" />
+                  Database Configuration
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => handleRequestInput({
                   type: 'addCollection',
                   prompt: "Enter new collection name:",
                   folderId: folder.id
                 })}>
-                  <Plus className="h-3 w-3"/>
-                </Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Collection
+                </ContextMenuItem>
                 {onDeleteFolder && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const testCaseCount = folder.collections.reduce((acc, c) => acc + c.testCases.length, 0);
-                      setConfirmDialog({
-                        open: true,
-                        title: 'Delete Folder',
-                        description: `Are you sure you want to delete "${folder.name}"? This will permanently delete ${folder.collections.length} collection(s) and ${testCaseCount} test case(s). This action cannot be undone.`,
-                        onConfirm: () => {
-                          onDeleteFolder(folder.id);
-                          setConfirmDialog(prev => ({ ...prev, open: false }));
-                        }
-                      });
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3"/>
-                  </Button>
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem 
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => {
+                        const testCaseCount = folder.collections.reduce((acc, c) => acc + c.testCases.length, 0);
+                        setConfirmDialog({
+                          open: true,
+                          title: 'Delete Folder',
+                          description: `Are you sure you want to delete "${folder.name}"? This will permanently delete ${folder.collections.length} collection(s) and ${testCaseCount} test case(s). This action cannot be undone.`,
+                          onConfirm: () => {
+                            onDeleteFolder(folder.id);
+                            setConfirmDialog(prev => ({ ...prev, open: false }));
+                          }
+                        });
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Folder
+                    </ContextMenuItem>
+                  </>
                 )}
-              </div>
-            </div>
+              </ContextMenuContent>
+            </ContextMenu>
 
             {/* Collections */}
             <div className={`ml-4 overflow-hidden transition-all duration-300 ease-in-out ${expandedFolders.has(folder.id) ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0'}`}>
@@ -323,6 +466,32 @@ export const TestNavigator = ({
           </div>
         )}
       </div>
+
+      {/* Standalone Folder Settings Dialog for Context Menu */}
+      {folderSettingsDialog.open && folderSettingsDialog.folderId && workspaceFolders && onUpdateFolderConfig && (() => {
+        const workspaceFolder = workspaceFolders.find(wf => wf.id === folderSettingsDialog.folderId);
+        if (workspaceFolder) {
+          return (
+            <FolderSettingsDialog
+              folderName={workspaceFolder.name}
+              folderPath={workspaceFolder.path}
+              folderConfig={workspaceFolder.config || { databases: {} }}
+              onUpdateFolderConfig={(folderPath, config) => {
+                onUpdateFolderConfig(folderPath, config);
+                handleCloseFolderSettings();
+              }}
+              open={folderSettingsDialog.open}
+              onOpenChange={(open) => {
+                if (!open) {
+                  handleCloseFolderSettings();
+                }
+              }}
+              globalDatabases={globalDatabases}
+            />
+          );
+        }
+        return null;
+      })()}
 
       {/* Confirmation Dialog */}
       <ConfirmDialog

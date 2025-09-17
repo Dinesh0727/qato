@@ -1,5 +1,6 @@
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GlobalSettingsDialog } from '@/components/GlobalSettingsDialog';
+import { ConfigurationStatusSummary } from '@/components/ConfigurationStatusSummary';
 
 interface DatabaseConfig {
   id: string;
@@ -36,13 +37,15 @@ interface HeaderProps {
   subtitle?: string;
   globalConfig?: GlobalConfig;
   onUpdateGlobalConfig?: (config: GlobalConfig) => void;
+  folderDatabases?: DatabaseConfig[];
 }
 
 export const Header = ({ 
   title = 'QATO Visual Builder', 
   subtitle,
   globalConfig,
-  onUpdateGlobalConfig
+  onUpdateGlobalConfig,
+  folderDatabases = []
 }: HeaderProps) => {
   const defaultGlobalConfig: GlobalConfig = {
     version: '1.0.0',
@@ -68,10 +71,19 @@ export const Header = ({
       
       <div className="flex items-center gap-2">
         {globalConfig && onUpdateGlobalConfig && (
-          <GlobalSettingsDialog
-            globalConfig={globalConfig}
-            onUpdateGlobalConfig={onUpdateGlobalConfig}
-          />
+          <>
+            <ConfigurationStatusSummary
+              globalDatabases={globalConfig.databases || []}
+              folderDatabases={folderDatabases}
+              onOpenGlobalSettings={() => {
+                // This will be handled by the GlobalSettingsDialog trigger
+              }}
+            />
+            <GlobalSettingsDialog
+              globalConfig={globalConfig}
+              onUpdateGlobalConfig={onUpdateGlobalConfig}
+            />
+          </>
         )}
         <ThemeToggle />
       </div>

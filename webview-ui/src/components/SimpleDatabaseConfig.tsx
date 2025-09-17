@@ -1,28 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Database, Save, X } from 'lucide-react';
-
-interface DatabaseConfig {
-  id: string;
-  name: string;
-  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
-  host: string;
-  port: number;
-  database?: string;
-  username?: string;
-  password?: string;
-  connectionString?: string;
-  timeout?: number;
-  maxConnections?: number;
-  ssl?: boolean;
-  description?: string;
-}
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Database, X, Zap, CheckCircle, XCircle, Loader2, ArrowDown, Edit3, Globe, Folder } from 'lucide-react';
+import { DatabaseConfig } from '../types';
 
 interface SimpleDatabaseConfigProps {
   databases: DatabaseConfig[];
@@ -30,6 +16,7 @@ interface SimpleDatabaseConfigProps {
   level: 'global' | 'folder';
   title?: string;
   description?: string;
+  inheritedDatabases?: DatabaseConfig[];
 }
 
 export const SimpleDatabaseConfig = ({
@@ -37,14 +24,15 @@ export const SimpleDatabaseConfig = ({
   onDatabasesChange,
   level,
   title = "Database Configurations",
-  description = "Configure database connections for your test cases"
+  description = "Configure database connections for your test cases",
+  inheritedDatabases = []
 }: SimpleDatabaseConfigProps) => {
   const [configs, setConfigs] = useState<{
     mysql?: DatabaseConfig;
     redis?: DatabaseConfig;
     clickhouse?: DatabaseConfig;
   }>(() => {
-    const configMap: any = {};
+    const configMap: { [key: string]: DatabaseConfig } = {};
     databases.forEach(db => {
       if (db.type === 'mysql' || db.type === 'redis' || db.type === 'clickhouse') {
         configMap[db.type] = db;
@@ -52,6 +40,17 @@ export const SimpleDatabaseConfig = ({
     });
     return configMap;
   });
+
+  const [testingConnections, setTestingConnections] = useState<Set<string>>(new Set());
+  type ConnectionTestDetails = {
+    host?: string;
+    port?: number;
+    response?: string;
+    code?: string;
+    statusCode?: number;
+  };
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; error?: string; details?: ConnectionTestDetails }>>({});
+  const [savingConfigs, setSavingConfigs] = useState<Set<string>>(new Set());
 
   const getDefaultPort = (type: string): number => {
     switch (type) {
@@ -68,7 +67,7 @@ export const SimpleDatabaseConfig = ({
     type,
     host: 'localhost',
     port: getDefaultPort(type),
-    database: type !== 'redis' ? 'test_db' : undefined,
+    database: type === 'redis' ? '0' : 'test_db',
     username: type !== 'redis' ? 'root' : undefined,
     password: type !== 'redis' ? '' : undefined,
     timeout: 30000,
@@ -77,17 +76,37 @@ export const SimpleDatabaseConfig = ({
     description: `${type.charAt(0).toUpperCase() + type.slice(1)} database connection`
   });
 
-  const handleConfigChange = (type: 'mysql' | 'redis' | 'clickhouse', updates: Partial<DatabaseConfig>) => {
+  // Keep local configs in sync if parent-provided databases change (e.g., import/reset)
+  useEffect(() => {
+    const configMap: { [key: string]: DatabaseConfig } = {};
+    databases.forEach(db => {
+      if (db.type === 'mysql' || db.type === 'redis' || db.type === 'clickhouse') {
+        configMap[db.type] = db;
+      }
+    });
+    setConfigs(configMap);
+  }, [databases]);
+
+  // Update only local state while typing; do not propagate to parent yet
+  const updateLocalConfig = (type: 'mysql' | 'redis' | 'clickhouse', updates: Partial<DatabaseConfig>) => {
     const currentConfig = configs[type] || createDefaultConfig(type);
     const updatedConfig = { ...currentConfig, ...updates };
-    
-    const newConfigs = { ...configs, [type]: updatedConfig };
-    setConfigs(newConfigs);
-    
-    // Update the databases array
+  };
+
+  // Commit current local config to parent (called onBlur or explicit actions)
+  const commitConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
+    const currentConfig = configs[type] || createDefaultConfig(type);
+    setSavingConfigs(prev => new Set([...prev, type]));
     const updatedDatabases = databases.filter(db => db.type !== type);
-    updatedDatabases.push(updatedConfig);
+    updatedDatabases.push(currentConfig);
     onDatabasesChange(updatedDatabases);
+    setTimeout(() => {
+      setSavingConfigs(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(type);
+        return newSet;
+      });
+    }, 300);
   };
 
   const handleRemoveConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
@@ -110,76 +129,262 @@ export const SimpleDatabaseConfig = ({
     onDatabasesChange(updatedDatabases);
   };
 
+  const handleTestConnection = async (type: 'mysql' | 'redis' | 'clickhouse', config: DatabaseConfig) => {
+    const testKey = `${type}-${config.id}`;
+    setTestingConnections(prev => new Set([...prev, testKey]));
+    setTestResults(prev => ({ ...prev, [testKey]: { success: false } }));
+
+    try {
+      // Send test connection message to extension
+      const vscode = (window as unknown as { acquireVsCodeApi: () => { postMessage: (msg: unknown) => void } }).acquireVsCodeApi();
+      vscode.postMessage({
+        command: 'testDatabaseConnection',
+        payload: { config }
+      });
+
+      // Listen for response
+      const handleMessage = (event: MessageEvent) => {
+        const message = event.data;
+        if (message.command === 'databaseConnectionTestResult') {
+          setTestResults(prev => ({ ...prev, [testKey]: message.payload }));
+          setTestingConnections(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(testKey);
+            return newSet;
+          });
+          window.removeEventListener('message', handleMessage);
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        setTestingConnections(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(testKey);
+          return newSet;
+        });
+        setTestResults(prev => ({ 
+          ...prev, 
+          [testKey]: { 
+            success: false, 
+            error: 'Connection test timed out after 30 seconds' 
+          } 
+        }));
+        window.removeEventListener('message', handleMessage);
+      }, 30000);
+
+    } catch (error: unknown) {
+      setTestingConnections(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(testKey);
+        return newSet;
+      });
+      setTestResults(prev => ({ 
+        ...prev, 
+        [testKey]: { 
+          success: false, 
+          error: (error as Error).message || 'Connection test failed' 
+        } 
+      }));
+    }
+  };
+
+  // Helper function to get inherited config for a specific type
+  const getInheritedConfig = (type: 'mysql' | 'redis' | 'clickhouse'): DatabaseConfig | undefined => {
+    return inheritedDatabases.find(db => db.type === type);
+  };
+
+  // Helper function to check if a field is inherited
+  const isFieldInherited = (type: 'mysql' | 'redis' | 'clickhouse', field: keyof DatabaseConfig): boolean => {
+    if (level === 'global') return false;
+    const inheritedConfig = getInheritedConfig(type);
+    const currentConfig = configs[type];
+    if (!inheritedConfig || !currentConfig) return false;
+    return currentConfig[field] === inheritedConfig[field];
+  };
+
   const DatabaseForm = ({ 
     type, 
     config 
   }: { 
     type: 'mysql' | 'redis' | 'clickhouse'; 
     config: DatabaseConfig;
-  }) => (
-    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-full ${
-            type === 'mysql' ? 'bg-blue-500' :
-            type === 'redis' ? 'bg-red-500' :
-            'bg-yellow-500'
-          }`} />
-          <h4 className="font-medium">{type.charAt(0).toUpperCase() + type.slice(1)} Configuration</h4>
+  }) => {
+    const testKey = `${type}-${config.id}`;
+    const isTestingConnection = testingConnections.has(testKey);
+    const isSaving = savingConfigs.has(type);
+    const testResult = testResults[testKey];
+    const isFormValid = config.host && config.port && (type === 'redis' || (config.database && config.username));
+    const inheritedConfig = getInheritedConfig(type);
+
+    return (
+      <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${
+              type === 'mysql' ? 'bg-blue-500' :
+              type === 'redis' ? 'bg-red-500' :
+              'bg-yellow-500'
+            }`} />
+            <h4 className="font-medium">{type.charAt(0).toUpperCase() + type.slice(1)} Configuration</h4>
+            {level === 'folder' && inheritedConfig && (
+              <Badge variant="outline" className="text-xs">
+                <ArrowDown className="h-3 w-3 mr-1" />
+                Inherits from Global
+              </Badge>
+            )}
+            {level === 'folder' && !inheritedConfig && (
+              <Badge variant="secondary" className="text-xs">
+                <Edit3 className="h-3 w-3 mr-1" />
+                Folder Override
+              </Badge>
+            )}
+            {isSaving && (
+              <Badge variant="outline" className="text-xs animate-pulse">
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Saving...
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleTestConnection(type, config)}
+              disabled={!isFormValid || isTestingConnection}
+            >
+              {isTestingConnection ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Zap className="h-4 w-4 mr-2" />
+              )}
+              Test
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleRemoveConfig(type)}
+              className="text-destructive hover:text-destructive"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleRemoveConfig(type)}
-          className="text-destructive hover:text-destructive"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor={`${type}-name`}>Connection Name</Label>
+          <div className="flex items-center gap-2 mb-1">
+            <Label htmlFor={`${type}-name`}>Connection Name</Label>
+            {isFieldInherited(type, 'name') && (
+              <Badge variant="outline" className="text-xs">
+                <ArrowDown className="h-3 w-3 mr-1" />
+                Inherited
+              </Badge>
+            )}
+          </div>
           <Input
             id={`${type}-name`}
             value={config.name}
-            onChange={(e) => handleConfigChange(type, { name: e.target.value })}
+            onChange={(e) => updateLocalConfig(type, { name: e.target.value })}
+            onBlur={() => commitConfig(type)}
             placeholder={`${type.charAt(0).toUpperCase() + type.slice(1)} Connection`}
           />
+          {inheritedConfig && inheritedConfig.name && config.name !== inheritedConfig.name && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Global: {inheritedConfig.name}
+            </p>
+          )}
         </div>
         <div>
-          <Label htmlFor={`${type}-host`}>Host</Label>
+          <div className="flex items-center gap-2 mb-1">
+            <Label htmlFor={`${type}-host`}>Host</Label>
+            {isFieldInherited(type, 'host') && (
+              <Badge variant="outline" className="text-xs">
+                <ArrowDown className="h-3 w-3 mr-1" />
+                Inherited
+              </Badge>
+            )}
+          </div>
           <Input
             id={`${type}-host`}
             value={config.host}
-            onChange={(e) => handleConfigChange(type, { host: e.target.value })}
+            onChange={(e) => updateLocalConfig(type, { host: e.target.value })}
+            onBlur={() => commitConfig(type)}
             placeholder="localhost"
           />
+          {inheritedConfig && inheritedConfig.host && config.host !== inheritedConfig.host && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Global: {inheritedConfig.host}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor={`${type}-port`}>Port</Label>
+          <div className="flex items-center gap-2 mb-1">
+            <Label htmlFor={`${type}-port`}>Port</Label>
+            {isFieldInherited(type, 'port') && (
+              <Badge variant="outline" className="text-xs">
+                <ArrowDown className="h-3 w-3 mr-1" />
+                Inherited
+              </Badge>
+            )}
+          </div>
           <Input
             id={`${type}-port`}
             type="number"
             value={config.port}
-            onChange={(e) => handleConfigChange(type, { port: parseInt(e.target.value) || getDefaultPort(type) })}
+            onChange={(e) => updateLocalConfig(type, { port: parseInt(e.target.value) || getDefaultPort(type) })}
+            onBlur={() => commitConfig(type)}
             placeholder={getDefaultPort(type).toString()}
           />
+          {inheritedConfig && inheritedConfig.port && config.port !== inheritedConfig.port && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Global: {inheritedConfig.port}
+            </p>
+          )}
         </div>
-        {type !== 'redis' && (
-          <div>
-            <Label htmlFor={`${type}-database`}>Database Name</Label>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Label htmlFor={`${type}-database`}>
+              {type === 'redis' ? 'Database Number' : 'Database Name'}
+            </Label>
+            {isFieldInherited(type, 'database') && (
+              <Badge variant="outline" className="text-xs">
+                <ArrowDown className="h-3 w-3 mr-1" />
+                Inherited
+              </Badge>
+            )}
+          </div>
+          {type === 'redis' ? (
+            <Input
+              id={`${type}-database`}
+              type="number"
+              value={config.database || '0'}
+              onChange={(e) => updateLocalConfig(type, { database: e.target.value || '0' })}
+              onBlur={() => commitConfig(type)}
+              placeholder="0"
+              min="0"
+              max="15"
+            />
+          ) : (
             <Input
               id={`${type}-database`}
               value={config.database || ''}
-              onChange={(e) => handleConfigChange(type, { database: e.target.value })}
+              onChange={(e) => updateLocalConfig(type, { database: e.target.value })}
+              onBlur={() => commitConfig(type)}
               placeholder="test_db"
             />
-          </div>
-        )}
+          )}
+          {inheritedConfig && inheritedConfig.database && config.database !== inheritedConfig.database && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Global: {inheritedConfig.database}
+            </p>
+          )}
+        </div>
       </div>
 
       {type !== 'redis' && (
@@ -189,7 +394,8 @@ export const SimpleDatabaseConfig = ({
             <Input
               id={`${type}-username`}
               value={config.username || ''}
-              onChange={(e) => handleConfigChange(type, { username: e.target.value })}
+              onChange={(e) => updateLocalConfig(type, { username: e.target.value })}
+              onBlur={() => commitConfig(type)}
               placeholder="root"
             />
           </div>
@@ -199,7 +405,8 @@ export const SimpleDatabaseConfig = ({
               id={`${type}-password`}
               type="password"
               value={config.password || ''}
-              onChange={(e) => handleConfigChange(type, { password: e.target.value })}
+              onChange={(e) => updateLocalConfig(type, { password: e.target.value })}
+              onBlur={() => commitConfig(type)}
               placeholder="••••••••"
             />
           </div>
@@ -213,7 +420,8 @@ export const SimpleDatabaseConfig = ({
             id={`${type}-timeout`}
             type="number"
             value={config.timeout || ''}
-            onChange={(e) => handleConfigChange(type, { timeout: parseInt(e.target.value) || 30000 })}
+            onChange={(e) => updateLocalConfig(type, { timeout: parseInt(e.target.value) || 30000 })}
+            onBlur={() => commitConfig(type)}
             placeholder="30000"
           />
         </div>
@@ -223,7 +431,8 @@ export const SimpleDatabaseConfig = ({
             id={`${type}-maxConnections`}
             type="number"
             value={config.maxConnections || ''}
-            onChange={(e) => handleConfigChange(type, { maxConnections: parseInt(e.target.value) || 10 })}
+            onChange={(e) => updateLocalConfig(type, { maxConnections: parseInt(e.target.value) || 10 })}
+            onBlur={() => commitConfig(type)}
             placeholder="10"
           />
         </div>
@@ -233,7 +442,10 @@ export const SimpleDatabaseConfig = ({
         <Switch
           id={`${type}-ssl`}
           checked={config.ssl || false}
-          onCheckedChange={(checked) => handleConfigChange(type, { ssl: checked })}
+          onCheckedChange={(checked) => {
+            updateLocalConfig(type, { ssl: checked });
+            commitConfig(type);
+          }}
         />
         <Label htmlFor={`${type}-ssl`}>Enable SSL</Label>
       </div>
@@ -243,13 +455,51 @@ export const SimpleDatabaseConfig = ({
         <Textarea
           id={`${type}-description`}
           value={config.description || ''}
-          onChange={(e) => handleConfigChange(type, { description: e.target.value })}
+          onChange={(e) => updateLocalConfig(type, { description: e.target.value })}
+          onBlur={() => commitConfig(type)}
           placeholder={`Optional description for this ${type} connection`}
           rows={2}
         />
       </div>
+
+      {/* Connection Test Result */}
+      {testResult && (
+        <Alert className={testResult.success ? 'border-green-500' : 'border-red-500'}>
+          {testResult.success ? (
+            <CheckCircle className="h-4 w-4 text-green-500" />
+          ) : (
+            <XCircle className="h-4 w-4 text-red-500" />
+          )}
+          <AlertDescription>
+            <div className="space-y-2">
+              <div>
+                {testResult.success 
+                  ? 'Connection test successful!' 
+                  : `Connection test failed: ${testResult.error || 'Unknown error'}`
+                }
+              </div>
+              {testResult.details && (
+                <div className="text-xs text-muted-foreground">
+                  {testResult.success ? (
+                    <div>
+                      Connected to {testResult.details.host}:{testResult.details.port}
+                      {testResult.details.response && ` (${testResult.details.response})`}
+                    </div>
+                  ) : (
+                    <div>
+                      {testResult.details.code && `Error Code: ${testResult.details.code}`}
+                      {testResult.details.statusCode && ` | HTTP Status: ${testResult.details.statusCode}`}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -257,8 +507,29 @@ export const SimpleDatabaseConfig = ({
         <div className="flex items-center gap-2 mb-2">
           <Database className="h-5 w-5" />
           <h3 className="text-lg font-medium">{title}</h3>
+          <Badge variant={level === 'global' ? 'default' : 'secondary'} className="text-xs">
+            {level === 'global' ? (
+              <>
+                <Globe className="h-3 w-3 mr-1" />
+                Global Level
+              </>
+            ) : (
+              <>
+                <Folder className="h-3 w-3 mr-1" />
+                Folder Level
+              </>
+            )}
+          </Badge>
         </div>
         <p className="text-sm text-muted-foreground">{description}</p>
+        {level === 'folder' && inheritedDatabases.length > 0 && (
+          <div className="mt-2 p-2 bg-muted/50 rounded-md">
+            <p className="text-xs text-muted-foreground">
+              <ArrowDown className="h-3 w-3 inline mr-1" />
+              Inheriting from {inheritedDatabases.length} global database configuration(s)
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="space-y-4">

@@ -1,26 +1,67 @@
 package com.qato.utils;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Collections;
+
+import com.qato.config.ConfigurationManager;
+import com.qato.config.DatabaseConfig;
 
 public class DbUtils {
 
-    // IMPORTANT: These are hardcoded for now, as per the original plan for this phase.
-    // We will address secure credential management in a later step.
-    private static final String URL = "jdbc:mysql://localhost:4406/dev_apps";
-    private static final String USER = "dinesh";
-    private static final String PASSWORD = "password";
+    private static final ConfigurationManager configManager = ConfigurationManager.getInstance();
+
+    /**
+     * Get database connection using current configuration
+     */
+    private static Connection getConnection() throws SQLException {
+        DatabaseConfig config = configManager.getConfiguration("mysql");
+        String url = String.format("jdbc:mysql://%s:%d/%s", 
+            config.getHost(), 
+            config.getPort(), 
+            config.getDatabase() != null ? config.getDatabase() : "");
+        
+        System.out.println("[DEBUG:DbUtils] Connecting to: " + url + " with user: " + config.getUsername());
+        
+        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+    }
+
+    /**
+     * Get database connection using provided configuration
+     */
+    private static Connection getConnection(DatabaseConfig config) throws SQLException {
+        if (config == null) {
+            return getConnection(); // Fall back to default configuration
+        }
+        
+        String url = String.format("jdbc:mysql://%s:%d/%s", 
+            config.getHost(), 
+            config.getPort(), 
+            config.getDatabase() != null ? config.getDatabase() : "");
+        
+        System.out.println("[DEBUG:DbUtils] Connecting to: " + url + " with user: " + config.getUsername());
+        
+        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+    }
 
     public static List<Map<String, Object>> readRows(String query) {
+        return readRows(query, null);
+    }
+
+    public static List<Map<String, Object>> readRows(String query, DatabaseConfig config) {
         System.out.println("[DEBUG:DbUtils] Executing query: " + query);
 
         if (!query.trim().toLowerCase().startsWith("select")) {
             // If it's not a SELECT query, delegate to executeStatement
-            return Collections.singletonList(executeStatement(query));
+            return Collections.singletonList(executeStatement(query, config));
         }
 
         // Add a default limit if one isn't specified for SELECT queries
@@ -36,7 +77,7 @@ public class DbUtils {
         }
 
         List<Map<String, Object>> resultList = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+        try (Connection conn = getConnection(config);
              PreparedStatement stmt = conn.prepareStatement(query);
              ResultSet rs = stmt.executeQuery()) {
 
@@ -62,8 +103,12 @@ public class DbUtils {
     }
 
     public static Map<String, Object> executeStatement(String query) {
+        return executeStatement(query, null);
+    }
+
+    public static Map<String, Object> executeStatement(String query, DatabaseConfig config) {
         System.out.println("[DEBUG:DbUtils] Executing statement: " + query);
-        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+        try (Connection conn = getConnection(config);
              PreparedStatement stmt = conn.prepareStatement(query)) {
 
             int affectedRows = stmt.executeUpdate();

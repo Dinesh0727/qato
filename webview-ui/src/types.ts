@@ -256,3 +256,56 @@ export interface ThemeConfig {
     wcagCompliant: boolean;
   };
 }
+
+// Database Configuration Types
+export interface DatabaseConfig {
+  id: string;
+  name: string;
+  type: 'mysql' | 'redis' | 'clickhouse';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  timeout?: number;
+  maxConnections?: number;
+  ssl?: boolean;
+  description?: string;
+}
+
+export interface DatabaseConfigSet {
+  mysql?: DatabaseConfig;
+  redis?: DatabaseConfig;
+  clickhouse?: DatabaseConfig;
+}
+
+export interface ConfigurationContext {
+  path: string;
+  level: 'global' | 'folder' | 'collection';
+  resolvedConfig: DatabaseConfigSet;
+  inheritanceChain: string[];
+}
+
+export interface ConfigurationError {
+  type: 'validation' | 'connection' | 'inheritance' | 'storage';
+  message: string;
+  path?: string;
+  details?: Record<string, unknown>;
+}
+
+// UI Component Props Types
+export interface DatabaseConfigFormProps {
+  config: DatabaseConfig;
+  type: 'mysql' | 'redis' | 'clickhouse';
+  onChange: (config: DatabaseConfig) => void;
+  onTest?: (config: DatabaseConfig) => Promise<{ success: boolean; error?: string; details?: any }>;
+  level: 'global' | 'folder';
+  inheritedConfig?: DatabaseConfig;
+}
+
+export interface FolderConfigDialogProps {
+  folderPath: string;
+  currentConfig?: DatabaseConfigSet;
+  inheritedConfig: DatabaseConfigSet;
+  onSave: (config: DatabaseConfigSet) => void;
+}

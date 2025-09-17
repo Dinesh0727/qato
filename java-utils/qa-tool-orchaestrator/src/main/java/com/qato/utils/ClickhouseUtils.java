@@ -1,26 +1,67 @@
 package com.qato.utils;
 
-import java.sql.*;
-import java.util.HashMap;
-import java.util.Map;
-
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import com.qato.config.ConfigurationManager;
+import com.qato.config.DatabaseConfig;
 
 public class ClickhouseUtils {
 
-    private static final String URL = "jdbc:clickhouse://localhost:8123/default";
-    private static final String USER = "default";
-    private static final String PASSWORD = "";
+    private static final ConfigurationManager configManager = ConfigurationManager.getInstance();
+
+    /**
+     * Get ClickHouse connection using current configuration
+     */
+    private static Connection getConnection() throws SQLException {
+        DatabaseConfig config = configManager.getConfiguration("clickhouse");
+        String url = String.format("jdbc:clickhouse://%s:%d/%s", 
+            config.getHost(), 
+            config.getPort(), 
+            config.getDatabase() != null ? config.getDatabase() : "default");
+        
+        System.out.println("[DEBUG:ClickhouseUtils] Connecting to: " + url + " with user: " + config.getUsername());
+        
+        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+    }
+
+    /**
+     * Get ClickHouse connection using provided configuration
+     */
+    private static Connection getConnection(DatabaseConfig config) throws SQLException {
+        if (config == null) {
+            return getConnection(); // Fall back to default configuration
+        }
+        
+        String url = String.format("jdbc:clickhouse://%s:%d/%s", 
+            config.getHost(), 
+            config.getPort(), 
+            config.getDatabase() != null ? config.getDatabase() : "default");
+        
+        System.out.println("[DEBUG:ClickhouseUtils] Connecting to: " + url + " with user: " + config.getUsername());
+        
+        return DriverManager.getConnection(url, config.getUsername(), config.getPassword());
+    }
 
     public static List<Map<String, Object>> readRows(String query) {
+        return readRows(query, null);
+    }
+
+    public static List<Map<String, Object>> readRows(String query, DatabaseConfig config) {
         System.out.println("[DEBUG:ClickhouseUtils] Executing query: " + query);
 
         if (!query.trim().toLowerCase().startsWith("select")) {
             // If it's not a SELECT query, delegate to executeStatement
-            return Collections.singletonList(executeStatement(query));
+            return Collections.singletonList(executeStatement(query, config));
         }
 
         // Add a default limit if one isn't specified for SELECT queries
@@ -36,7 +77,7 @@ public class ClickhouseUtils {
         }
 
         List<Map<String, Object>> resultList = new ArrayList<>();
-        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+        try (Connection conn = getConnection(config);
                 PreparedStatement stmt = conn.prepareStatement(query);
                 ResultSet rs = stmt.executeQuery()) {
 
@@ -62,8 +103,12 @@ public class ClickhouseUtils {
     }
 
     public static Map<String, Object> executeStatement(String query) {
+        return executeStatement(query, null);
+    }
+
+    public static Map<String, Object> executeStatement(String query, DatabaseConfig config) {
         System.out.println("[DEBUG:ClickhouseUtils] Executing statement: " + query);
-        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+        try (Connection conn = getConnection(config);
              PreparedStatement stmt = conn.prepareStatement(query)) {
 
             int affectedRows = stmt.executeUpdate();

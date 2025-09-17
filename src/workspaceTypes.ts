@@ -145,17 +145,62 @@ export interface WorkspaceTestCase {
 export interface DatabaseConfig {
   id: string;
   name: string;
-  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
+  type: 'mysql' | 'redis' | 'clickhouse';
   host: string;
   port: number;
   database?: string;
   username?: string;
   password?: string;
-  connectionString?: string;
   timeout?: number;
   maxConnections?: number;
   ssl?: boolean;
   description?: string;
+}
+
+/**
+ * Set of database configurations for different database types
+ */
+export interface DatabaseConfigSet {
+  mysql?: DatabaseConfig;
+  redis?: DatabaseConfig;
+  clickhouse?: DatabaseConfig;
+}
+
+/**
+ * Configuration context for resolution and inheritance
+ */
+export interface ConfigurationContext {
+  path: string;
+  level: 'global' | 'folder' | 'collection';
+  resolvedConfig: DatabaseConfigSet;
+  inheritanceChain: string[];
+}
+
+/**
+ * Database configuration error types
+ */
+export interface ConfigurationError {
+  type: 'validation' | 'connection' | 'inheritance' | 'storage';
+  message: string;
+  path?: string;
+  details?: Record<string, any>;
+}
+
+/**
+ * Database configuration manager interface
+ */
+export interface DatabaseConfigManager {
+  // Configuration Resolution
+  resolveConfig(path: string): Promise<DatabaseConfigSet>;
+  getConfigForPath(path: string, dbType: 'mysql' | 'redis' | 'clickhouse'): Promise<DatabaseConfig | null>;
+  
+  // Configuration Management
+  setGlobalConfig(config: DatabaseConfigSet): Promise<void>;
+  setFolderConfig(folderPath: string, config: DatabaseConfigSet): Promise<void>;
+  
+  // Cache Management
+  invalidateCache(path?: string): void;
+  preloadConfigurations(): Promise<void>;
 }
 
 /**
@@ -167,12 +212,7 @@ export interface GlobalConfig {
     timeout?: number;
     retryCount?: number;
   };
-  databases?: DatabaseConfig[];
-  defaultDatabaseConnections?: {
-    sql?: string; // Database ID to use as default for SQL steps
-    redis?: string; // Database ID to use as default for Redis steps
-    clickhouse?: string; // Database ID to use as default for ClickHouse steps
-  };
+  databases: DatabaseConfigSet;
 }
 
 /**
@@ -183,12 +223,8 @@ export interface FolderConfig {
   defaultCollectionSettings?: {
     timeout?: number;
   };
-  databases?: DatabaseConfig[];
-  defaultDatabaseConnections?: {
-    sql?: string;
-    redis?: string;
-    clickhouse?: string;
-  };
+  databases?: DatabaseConfigSet;
+  inheritFromParent?: boolean;
 }
 
 /**
@@ -217,7 +253,27 @@ export type WorkspaceMessage =
   | { command: 'updateGlobalConfig'; payload: { config: GlobalConfig } }
   | { command: 'updateFolderConfig'; payload: { folderPath: string; config: FolderConfig } }
   | { command: 'fileSystemChanged'; payload: { workspaceTree: WorkspaceTree } }
-  | { command: 'workspaceError'; payload: { error: string } };
+  | { command: 'workspaceError'; payload: { error: string } }
+  | { command: 'getDatabaseConfig'; payload: { path: string; dbType?: 'mysql' | 'redis' | 'clickhouse' } }
+  | { command: 'setDatabaseConfig'; payload: { path: string; config: DatabaseConfigSet; level: 'global' | 'folder' } }
+  | { command: 'resolveDatabaseConfig'; payload: { path: string } }
+  | { command: 'testDatabaseConnection'; payload: { config: DatabaseConfig } }
+  | { command: 'runGeneratedTest'; payload: { featureFileContent: string; folderPath?: string } }
+  | { command: 'databaseConfigResolved'; payload: { path: string; config: DatabaseConfigSet; context: ConfigurationContext } }
+  | { command: 'databaseConfigUpdated'; payload: { path: string; config: DatabaseConfigSet } }
+  | { command: 'databaseConnectionTestResult'; payload: { success: boolean; error?: string; details?: any } }
+  | { command: 'databaseConfigError'; payload: { error: ConfigurationError } }
+  | { command: 'migrationStatus'; payload: { needed: boolean; history?: any[] } }
+  | { command: 'performMigration'; payload: { force?: boolean } }
+  | { command: 'migrationCompleted'; payload: { success: boolean; migrationPerformed: boolean; error?: string } }
+  | { command: 'getMigrationHistory'; payload: {} }
+  | { command: 'migrationHistoryResult'; payload: { success: boolean; history?: any[]; error?: string } }
+  | { command: 'testMigrationScenarios'; payload: {} }
+  | { command: 'migrationScenariosResult'; payload: { success: boolean; scenarios?: any; recommendations?: string[]; error?: string } }
+  | { command: 'exportConfiguration'; payload: {} }
+  | { command: 'configurationExported'; payload: { success: boolean; data?: any; error?: string } }
+  | { command: 'importConfiguration'; payload: { data: any } }
+  | { command: 'configurationImported'; payload: { success: boolean; imported: boolean; error?: string } };
 
 /**
  * File system operation result

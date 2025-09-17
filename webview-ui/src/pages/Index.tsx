@@ -654,10 +654,25 @@ const Index = () => {
     });
 
     try {
+      // Find the folder path for this test case
+      let folderPath: string | undefined;
+      if (workspaceTree) {
+        for (const folder of workspaceTree.folders) {
+          const collection = folder.collections.find(c => c.testCases.some(tc => tc.testCase.id === testCase.id));
+          if (collection) {
+            folderPath = folder.path;
+            break;
+          }
+        }
+      }
+
       const gherkinContent = generateGherkin(testCase);
       vscode.postMessage({
         command: 'runGeneratedTest',
-        payload: { featureFileContent: gherkinContent }
+        payload: { 
+          featureFileContent: gherkinContent,
+          folderPath: folderPath
+        }
       });
     } catch (error) {
       console.error('Error in handleRunTestCase:', error);

@@ -1,16 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { 
+import {
   TestCase,
-  WorkspaceTree, 
-  WorkspaceFolder, 
-  WorkspaceCollection, 
+  WorkspaceTree,
+  WorkspaceFolder,
+  WorkspaceCollection,
   WorkspaceTestCase,
   FileSystemResult,
   GlobalConfig,
   FolderConfig,
-  CollectionConfig
+  CollectionConfig,
+  DatabaseConfig,
+  DatabaseConfigSet
 } from './workspaceTypes';
+import { ConfigurationMigration } from './configurationMigration';
 
 /**
  * Manages file system operations for QATO workspace persistence
@@ -18,6 +21,11 @@ import {
 export class WorkspaceManager {
   private fileWatcher: vscode.FileSystemWatcher | null = null;
   private rootUri: vscode.Uri | null = null;
+  private migrationUtility: ConfigurationMigration;
+
+  constructor() {
+    this.migrationUtility = new ConfigurationMigration();
+  }
 
   /**
    * Get the current root URI
@@ -28,12 +36,12 @@ export class WorkspaceManager {
 
   /**
    * Initialize the workspace structure at the given root URI
-   * Creates .qato directory and global-config.json if they don't exist
+   * Creates .qato directory and handles configuration migration
    */
   async initializeWorkspace(rootUri: vscode.Uri): Promise<FileSystemResult<void>> {
     try {
       this.rootUri = rootUri;
-      
+
       // Create .qato directory for metadata (optional)
       const qatoDir = vscode.Uri.joinPath(rootUri, '.qato');
       try {
@@ -43,74 +51,26 @@ export class WorkspaceManager {
         await vscode.workspace.fs.createDirectory(qatoDir);
       }
 
-      // Create global-config.json if it doesn't exist
-      const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
-      try {
-        await vscode.workspace.fs.stat(globalConfigPath);
-      } catch {
-        // File doesn't exist, create default config
-        const defaultConfig: GlobalConfig = {
-          version: '1.0.0',
-          defaultSettings: {
-            timeout: 30000,
-            retryCount: 3
-          },
-          databases: [
-            {
-              id: 'default-mysql',
-              name: 'Default MySQL',
-              type: 'mysql',
-              host: 'localhost',
-              port: 3306,
-              database: 'test',
-              username: 'root',
-              password: '',
-              timeout: 30000,
-              maxConnections: 10,
-              ssl: false,
-              description: 'Default MySQL connection for testing'
-            },
-            {
-              id: 'default-redis',
-              name: 'Default Redis',
-              type: 'redis',
-              host: 'localhost',
-              port: 6379,
-              timeout: 30000,
-              maxConnections: 10,
-              ssl: false,
-              description: 'Default Redis connection for caching and session storage'
-            },
-            {
-              id: 'default-clickhouse',
-              name: 'Default ClickHouse',
-              type: 'clickhouse',
-              host: 'localhost',
-              port: 9000,
-              database: 'default',
-              username: 'default',
-              password: '',
-              timeout: 30000,
-              maxConnections: 10,
-              ssl: false,
-              description: 'Default ClickHouse connection for analytics'
-            }
-          ],
-          defaultDatabaseConnections: {
-            sql: 'default-mysql',
-            redis: 'default-redis',
-            clickhouse: 'default-clickhouse'
-          }
-        };
-        const configContent = JSON.stringify(defaultConfig, null, 2);
-        await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
+      // Perform configuration migration and backward compatibility handling
+      const migrationResult = await this.migrationUtility.migrateWorkspaceConfiguration(rootUri);
+      if (!migrationResult.success) {
+        console.warn('[WorkspaceManager] Configuration migration failed:', migrationResult.error);
+        // Continue with initialization even if migration fails
+      } else if (migrationResult.data) {
+        console.log('[WorkspaceManager] Configuration migration completed successfully');
+      }
+
+      // Validate the final configuration
+      const validationResult = await this.migrationUtility.validateMigratedConfiguration(rootUri);
+      if (!validationResult.success) {
+        console.warn('[WorkspaceManager] Configuration validation failed:', validationResult.error);
       }
 
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to initialize workspace: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to initialize workspace: ${error.message}`
       };
     }
   }
@@ -136,7 +96,7 @@ export class WorkspaceManager {
 
       // Read all directories in the root (excluding .qato)
       const entries = await vscode.workspace.fs.readDirectory(rootUri);
-      
+
       for (const [name, type] of entries) {
         // Skip files and hidden directories
         if (type !== vscode.FileType.Directory || name.startsWith('.')) {
@@ -158,9 +118,9 @@ export class WorkspaceManager {
 
       return { success: true, data: workspaceTree };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to read workspace tree: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to read workspace tree: ${error.message}`
       };
     }
   }
@@ -185,7 +145,7 @@ export class WorkspaceManager {
 
       // Read all subdirectories (collections)
       const entries = await vscode.workspace.fs.readDirectory(folderUri);
-      
+
       for (const [name, type] of entries) {
         // Skip files and config files
         if (type !== vscode.FileType.Directory) {
@@ -232,7 +192,7 @@ export class WorkspaceManager {
 
       // Read all .test.json files
       const entries = await vscode.workspace.fs.readDirectory(collectionUri);
-      
+
       for (const [name, type] of entries) {
         // Only process .test.json files
         if (type !== vscode.FileType.File || !name.endsWith('.test.json')) {
@@ -267,12 +227,12 @@ export class WorkspaceManager {
     try {
       const fileData = await vscode.workspace.fs.readFile(testCaseUri);
       const testCase: TestCase = JSON.parse(fileData.toString());
-      
+
       // Ensure the test case has the correct collectionId
       testCase.collectionId = collectionId;
 
       const fileName = path.basename(testCaseUri.fsPath, '.test.json');
-      
+
       return {
         id: testCase.id,
         name: testCase.name,
@@ -293,12 +253,12 @@ export class WorkspaceManager {
     try {
       const fileData = await vscode.workspace.fs.readFile(uri);
       const testCase: TestCase = JSON.parse(fileData.toString());
-      
+
       return { success: true, data: testCase };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to load test case: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to load test case: ${error.message}`
       };
     }
   }
@@ -323,9 +283,9 @@ export class WorkspaceManager {
 
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to save test case: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to save test case: ${error.message}`
       };
     }
   }
@@ -353,9 +313,9 @@ export class WorkspaceManager {
 
       return { success: true, data: folderUri.fsPath };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to create folder: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to create folder: ${error.message}`
       };
     }
   }
@@ -378,9 +338,9 @@ export class WorkspaceManager {
 
       return { success: true, data: collectionUri.fsPath };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to create collection: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to create collection: ${error.message}`
       };
     }
   }
@@ -389,7 +349,11 @@ export class WorkspaceManager {
    * Set up file system watcher for the workspace
    * Watches for changes to directories, config files, and test files
    */
-  setupFileWatcher(rootUri: vscode.Uri, onChanged: (workspaceTree: WorkspaceTree) => void): void {
+  setupFileWatcher(
+    rootUri: vscode.Uri,
+    onChanged: (workspaceTree: WorkspaceTree) => void,
+    onDatabaseConfigChanged?: (path: string, config: DatabaseConfigSet) => void
+  ): void {
     // Dispose existing watcher
     if (this.fileWatcher) {
       this.fileWatcher.dispose();
@@ -402,12 +366,37 @@ export class WorkspaceManager {
 
     // Handle file/directory changes with debouncing to avoid excessive updates
     let debounceTimer: NodeJS.Timeout | null = null;
-    const handleChange = async () => {
+    const handleChange = async (uri: vscode.Uri) => {
       // Clear existing timer
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
-      
+
+      // Check if this is a database configuration change
+      const fileName = path.basename(uri.fsPath);
+      if ((fileName === 'global-config.json' || fileName === 'folder-config.json') && onDatabaseConfigChanged) {
+        try {
+          let config: DatabaseConfigSet = {};
+
+          if (fileName === 'global-config.json') {
+            const result = await this.getGlobalDatabaseConfig(rootUri);
+            if (result.success && result.data) {
+              config = result.data;
+            }
+          } else if (fileName === 'folder-config.json') {
+            const folderUri = vscode.Uri.joinPath(uri, '..');
+            const result = await this.getFolderDatabaseConfig(folderUri);
+            if (result.success && result.data) {
+              config = result.data;
+            }
+          }
+
+          onDatabaseConfigChanged(uri.fsPath, config);
+        } catch (error) {
+          console.error('[WorkspaceManager] Error handling database config change:', error);
+        }
+      }
+
       // Debounce the update to avoid rapid successive calls
       debounceTimer = setTimeout(async () => {
         console.log('[WorkspaceManager] File system change detected, refreshing workspace tree...');
@@ -441,12 +430,12 @@ export class WorkspaceManager {
       const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
       const configContent = JSON.stringify(config, null, 2);
       await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
-      
+
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to update global config: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to update global config: ${error.message}`
       };
     }
   }
@@ -459,14 +448,418 @@ export class WorkspaceManager {
       const configPath = vscode.Uri.joinPath(folderUri, 'folder-config.json');
       const configContent = JSON.stringify(config, null, 2);
       await vscode.workspace.fs.writeFile(configPath, Buffer.from(configContent, 'utf8'));
-      
+
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to update folder config: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to update folder config: ${error.message}`
       };
     }
+  }
+
+  /**
+   * Get global database configuration
+   */
+  async getGlobalDatabaseConfig(rootUri: vscode.Uri): Promise<FileSystemResult<DatabaseConfigSet>> {
+    try {
+      const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
+      const configData = await vscode.workspace.fs.readFile(globalConfigPath);
+      const globalConfig: GlobalConfig = JSON.parse(configData.toString());
+
+      return { success: true, data: globalConfig.databases || {} };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to read global database config: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Set global database configuration
+   */
+  async setGlobalDatabaseConfig(rootUri: vscode.Uri, databases: DatabaseConfigSet): Promise<FileSystemResult<void>> {
+    try {
+      // Read existing global config
+      let globalConfig: GlobalConfig;
+      const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
+
+      try {
+        const configData = await vscode.workspace.fs.readFile(globalConfigPath);
+        globalConfig = JSON.parse(configData.toString());
+      } catch {
+        // Create default config if it doesn't exist
+        globalConfig = {
+          version: '1.0.0',
+          defaultSettings: {
+            timeout: 30000,
+            retryCount: 3
+          },
+          databases: {}
+        };
+      }
+
+      // Update database configuration
+      globalConfig.databases = { ...globalConfig.databases, ...databases };
+
+      // Validate configuration
+      const validationResult = this.validateDatabaseConfigSet(databases);
+      if (!validationResult.success) {
+        return validationResult;
+      }
+
+      // Write updated config
+      const configContent = JSON.stringify(globalConfig, null, 2);
+      await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
+
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to set global database config: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Get folder database configuration
+   */
+  async getFolderDatabaseConfig(folderUri: vscode.Uri): Promise<FileSystemResult<DatabaseConfigSet>> {
+    try {
+      const configPath = vscode.Uri.joinPath(folderUri, 'folder-config.json');
+      const configData = await vscode.workspace.fs.readFile(configPath);
+      const folderConfig: FolderConfig = JSON.parse(configData.toString());
+
+      return { success: true, data: folderConfig.databases || {} };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to read folder database config: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Set folder database configuration
+   */
+  async setFolderDatabaseConfig(folderUri: vscode.Uri, databases: DatabaseConfigSet): Promise<FileSystemResult<void>> {
+    try {
+      // Read existing folder config
+      let folderConfig: FolderConfig;
+      const configPath = vscode.Uri.joinPath(folderUri, 'folder-config.json');
+
+      try {
+        const configData = await vscode.workspace.fs.readFile(configPath);
+        folderConfig = JSON.parse(configData.toString());
+      } catch {
+        // Create default config if it doesn't exist
+        const folderName = path.basename(folderUri.fsPath);
+        folderConfig = {
+          description: `Folder: ${folderName}`,
+          inheritFromParent: true
+        };
+      }
+
+      // Update database configuration
+      folderConfig.databases = { ...folderConfig.databases, ...databases };
+
+      // Validate configuration
+      const validationResult = this.validateDatabaseConfigSet(databases);
+      if (!validationResult.success) {
+        return validationResult;
+      }
+
+      // Write updated config
+      const configContent = JSON.stringify(folderConfig, null, 2);
+      await vscode.workspace.fs.writeFile(configPath, Buffer.from(configContent, 'utf8'));
+
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to set folder database config: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Delete database configuration for a specific database type
+   */
+  async deleteDatabaseConfig(
+    uri: vscode.Uri,
+    dbType: 'mysql' | 'redis' | 'clickhouse',
+    level: 'global' | 'folder'
+  ): Promise<FileSystemResult<void>> {
+    try {
+      if (level === 'global') {
+        const result = await this.getGlobalDatabaseConfig(uri);
+        if (!result.success || !result.data) {
+          return { success: false, error: 'Failed to read global config' };
+        }
+
+        const updatedConfig = { ...result.data };
+        delete updatedConfig[dbType];
+
+        return await this.setGlobalDatabaseConfig(uri, updatedConfig);
+      } else {
+        const result = await this.getFolderDatabaseConfig(uri);
+        if (!result.success || !result.data) {
+          return { success: false, error: 'Failed to read folder config' };
+        }
+
+        const updatedConfig = { ...result.data };
+        delete updatedConfig[dbType];
+
+        return await this.setFolderDatabaseConfig(uri, updatedConfig);
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to delete database config: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Validate database configuration set
+   */
+  private validateDatabaseConfigSet(configSet: DatabaseConfigSet): FileSystemResult<void> {
+    try {
+      for (const [dbType, config] of Object.entries(configSet)) {
+        if (config) {
+          const validationResult = this.validateDatabaseConfig(config);
+          if (!validationResult.success) {
+            return {
+              success: false,
+              error: `Invalid ${dbType} configuration: ${validationResult.error}`
+            };
+          }
+        }
+      }
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Configuration validation failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Validate individual database configuration
+   */
+  private validateDatabaseConfig(config: DatabaseConfig): FileSystemResult<void> {
+    try {
+      // Required fields validation
+      if (!config.id || !config.name || !config.type || !config.host) {
+        return {
+          success: false,
+          error: 'Missing required fields: id, name, type, and host are required'
+        };
+      }
+
+      // Port validation
+      if (!config.port || config.port < 1 || config.port > 65535) {
+        return {
+          success: false,
+          error: 'Port must be a valid number between 1 and 65535'
+        };
+      }
+
+      // Type-specific validation
+      switch (config.type) {
+        case 'mysql':
+          if (!config.database || !config.username) {
+            return {
+              success: false,
+              error: 'MySQL configuration requires database and username fields'
+            };
+          }
+          break;
+        case 'clickhouse':
+          if (!config.database || !config.username) {
+            return {
+              success: false,
+              error: 'ClickHouse configuration requires database and username fields'
+            };
+          }
+          break;
+        case 'redis':
+          // Redis has fewer required fields, but validate database number if provided
+          if (config.database !== undefined && config.database !== '') {
+            const dbNum = parseInt(config.database, 10);
+            if (isNaN(dbNum) || dbNum < 0 || dbNum > 15) {
+              return {
+                success: false,
+                error: 'Redis database number must be a valid number between 0 and 15'
+              };
+            }
+          }
+          break;
+        default:
+          return {
+            success: false,
+            error: `Unsupported database type: ${config.type}`
+          };
+      }
+
+      // Timeout validation
+      if (config.timeout !== undefined && config.timeout < 1000) {
+        return {
+          success: false,
+          error: 'Timeout must be at least 1000ms'
+        };
+      }
+
+      // Max connections validation
+      if (config.maxConnections !== undefined && config.maxConnections < 1) {
+        return {
+          success: false,
+          error: 'Max connections must be at least 1'
+        };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Configuration validation failed: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Migrate workspace configuration manually
+   */
+  async migrateWorkspaceConfiguration(rootUri?: vscode.Uri): Promise<FileSystemResult<boolean>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available for migration' };
+    }
+
+    return await this.migrationUtility.migrateWorkspaceConfiguration(targetUri);
+  }
+
+  /**
+   * Check if workspace configuration needs migration
+   */
+  async checkMigrationNeeded(rootUri?: vscode.Uri): Promise<FileSystemResult<boolean>> {
+    try {
+      const targetUri = rootUri || this.rootUri;
+      if (!targetUri) {
+        return { success: false, error: 'No workspace root available' };
+      }
+
+      // Check if global-config.json exists and is up to date
+      const globalConfigPath = vscode.Uri.joinPath(targetUri, 'global-config.json');
+      try {
+        const configData = await vscode.workspace.fs.readFile(globalConfigPath);
+        const config = JSON.parse(configData.toString());
+        
+        // Check if configuration is up to date
+        const isUpToDate = config.version && 
+                          config.databases && 
+                          typeof config.databases === 'object';
+        
+        return { success: true, data: !isUpToDate };
+      } catch {
+        // File doesn't exist, migration needed
+        return { success: true, data: true };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to check migration status: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Get migration utility for external use
+   */
+  getMigrationUtility(): ConfigurationMigration {
+    return this.migrationUtility;
+  }
+
+  /**
+   * Force migration of workspace configuration
+   */
+  async forceMigration(rootUri?: vscode.Uri): Promise<FileSystemResult<boolean>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available for migration' };
+    }
+
+    return await this.migrationUtility.forceMigration(targetUri);
+  }
+
+  /**
+   * Get migration history
+   */
+  async getMigrationHistory(rootUri?: vscode.Uri): Promise<FileSystemResult<any[]>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available' };
+    }
+
+    return await this.migrationUtility.getMigrationHistory(targetUri);
+  }
+
+  /**
+   * Check migration status for specific migration type
+   */
+  async checkMigrationStatus(migrationType: string, rootUri?: vscode.Uri): Promise<FileSystemResult<boolean>> {
+    try {
+      const targetUri = rootUri || this.rootUri;
+      if (!targetUri) {
+        return { success: false, error: 'No workspace root available' };
+      }
+
+      const status = await this.migrationUtility.checkMigrationStatus(targetUri, migrationType);
+      return { success: true, data: status };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: `Failed to check migration status: ${error.message}`
+      };
+    }
+  }
+
+  /**
+   * Test migration scenarios with existing workspace configurations
+   */
+  async testMigrationScenarios(rootUri?: vscode.Uri): Promise<FileSystemResult<any>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available for migration testing' };
+    }
+
+    return await this.migrationUtility.testMigrationScenarios(targetUri);
+  }
+
+  /**
+   * Export configuration for backup or sharing
+   */
+  async exportConfiguration(rootUri?: vscode.Uri): Promise<FileSystemResult<any>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available for export' };
+    }
+
+    return await this.migrationUtility.exportConfiguration(targetUri);
+  }
+
+  /**
+   * Import configuration from exported data
+   */
+  async importConfiguration(importData: any, rootUri?: vscode.Uri): Promise<FileSystemResult<boolean>> {
+    const targetUri = rootUri || this.rootUri;
+    if (!targetUri) {
+      return { success: false, error: 'No workspace root available for import' };
+    }
+
+    return await this.migrationUtility.importConfiguration(targetUri, importData);
   }
 
   /**

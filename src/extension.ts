@@ -4,16 +4,26 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { QATO_CONFIG, buildErrorRegex, isDbError } from './config';
 import { WorkspaceManager } from './workspaceManager';
-import { WorkspaceMessage, WorkspaceTree } from './workspaceTypes';
+import { DatabaseConfigManager } from './databaseConfigManager';
+import { WorkspaceMessage, WorkspaceTree, DatabaseConfigSet } from './workspaceTypes';
 
 let dbAccessProcess: cp.ChildProcess | null = null;
 let workspaceManager: WorkspaceManager | null = null;
+let databaseConfigManager: DatabaseConfigManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('[DEBUG:extension.ts] Activating extension.');
     
     // Initialize workspace manager
     workspaceManager = new WorkspaceManager();
+    
+    // Initialize database config manager
+    databaseConfigManager = new DatabaseConfigManager(workspaceManager);
+    
+    // Set up configuration change callback
+    databaseConfigManager.setOnConfigurationChanged(async () => {
+        await writeDatabaseConfigurationsToFile();
+    });
     
     let showPanelCommand = vscode.commands.registerCommand('qato.showPanel', async () => {
         console.log('[DEBUG:extension.ts] showPanel command triggered.');
@@ -55,6 +65,9 @@ export function activate(context: vscode.ExtensionContext) {
             stopDbAccessService();
             if (workspaceManager) {
                 workspaceManager.dispose();
+            }
+            if (databaseConfigManager) {
+                databaseConfigManager.invalidateCache();
             }
         });
     });
@@ -109,6 +122,13 @@ async function initializeWorkspaceForPanel(panel: vscode.WebviewPanel) {
         return;
     }
 
+    // Set root URI for database config manager
+    if (databaseConfigManager) {
+        databaseConfigManager.setRootUri(rootUri);
+        // Preload configurations for performance
+        await databaseConfigManager.preloadConfigurations();
+    }
+
     // Load workspace tree
     const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
     if (!treeResult.success || !treeResult.data) {
@@ -131,6 +151,18 @@ async function initializeWorkspaceForPanel(panel: vscode.WebviewPanel) {
             command: 'fileSystemChanged',
             payload: { workspaceTree: updatedTree }
         });
+    }, async (configPath: string, config: DatabaseConfigSet) => {
+        // Handle database configuration changes
+        console.log('[DEBUG:extension.ts] Database configuration changed:', configPath, config);
+        
+        // Write updated configurations to file for Java backend
+        await writeDatabaseConfigurationsToFile();
+        
+        // Notify webview of configuration change
+        panel.webview.postMessage({
+            command: 'databaseConfigUpdated',
+            payload: { path: configPath, config }
+        });
     });
 }
 
@@ -148,7 +180,7 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
 
     switch (message.command) {
         case 'runGeneratedTest':
-            runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
+            runGeneratedKarateTest(message.payload.featureFileContent, context, panel, message.payload.folderPath);
             break;
 
         case 'showInputBox': {
@@ -324,6 +356,389 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
             await initializeWorkspaceForPanel(panel);
             break;
         }
+
+        case 'getDatabaseConfig': {
+            if (!databaseConfigManager) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: 'Database config manager not initialized' 
+                        } 
+                    }
+                });
+                break;
+            }
+
+            const { path: configPath, dbType } = message.payload;
+            try {
+                if (dbType) {
+                    const config = await databaseConfigManager.getConfigForPath(configPath, dbType);
+                    panel.webview.postMessage({
+                        command: 'databaseConfigResolved',
+                        payload: { 
+                            path: configPath, 
+                            config: config ? { [dbType]: config } : {},
+                            context: await databaseConfigManager.getConfigurationContext(configPath)
+                        }
+                    });
+                } else {
+                    const config = await databaseConfigManager.resolveConfig(configPath);
+                    panel.webview.postMessage({
+                        command: 'databaseConfigResolved',
+                        payload: { 
+                            path: configPath, 
+                            config,
+                            context: await databaseConfigManager.getConfigurationContext(configPath)
+                        }
+                    });
+                }
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: error.message,
+                            path: configPath
+                        } 
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'setDatabaseConfig': {
+            if (!databaseConfigManager) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: 'Database config manager not initialized' 
+                        } 
+                    }
+                });
+                break;
+            }
+
+            const { path: configPath, config, level } = message.payload;
+            try {
+                if (level === 'global') {
+                    await databaseConfigManager.setGlobalConfig(config);
+                } else if (level === 'folder') {
+                    await databaseConfigManager.setFolderConfig(configPath, config);
+                }
+
+                panel.webview.postMessage({
+                    command: 'databaseConfigUpdated',
+                    payload: { path: configPath, config }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: error.message,
+                            path: configPath
+                        } 
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'resolveDatabaseConfig': {
+            if (!databaseConfigManager) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: 'Database config manager not initialized' 
+                        } 
+                    }
+                });
+                break;
+            }
+
+            const { path: configPath } = message.payload;
+            try {
+                const config = await databaseConfigManager.resolveConfig(configPath);
+                const context = await databaseConfigManager.getConfigurationContext(configPath);
+                
+                panel.webview.postMessage({
+                    command: 'databaseConfigResolved',
+                    payload: { path: configPath, config, context }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'databaseConfigError',
+                    payload: { 
+                        error: { 
+                            type: 'storage', 
+                            message: error.message,
+                            path: configPath
+                        } 
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'testDatabaseConnection': {
+            if (!databaseConfigManager) {
+                panel.webview.postMessage({
+                    command: 'databaseConnectionTestResult',
+                    payload: { success: false, error: 'Database config manager not initialized' }
+                });
+                break;
+            }
+
+            const { config } = message.payload;
+            try {
+                // Perform real connection test with timeout and error handling
+                const testResult = await databaseConfigManager.testConnection(config);
+                
+                panel.webview.postMessage({
+                    command: 'databaseConnectionTestResult',
+                    payload: testResult
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'databaseConnectionTestResult',
+                    payload: { 
+                        success: false, 
+                        error: `Connection test failed: ${error.message}`,
+                        details: { originalError: error }
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'performMigration': {
+            const { force } = message.payload;
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'migrationCompleted',
+                    payload: { success: false, migrationPerformed: false, error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            try {
+                let result;
+                if (force) {
+                    result = await workspaceManager.forceMigration(rootUri);
+                } else {
+                    result = await workspaceManager.migrateWorkspaceConfiguration(rootUri);
+                }
+
+                panel.webview.postMessage({
+                    command: 'migrationCompleted',
+                    payload: { 
+                        success: result.success, 
+                        migrationPerformed: result.data || false,
+                        error: result.error
+                    }
+                });
+
+                // If migration was successful, refresh workspace tree
+                if (result.success && result.data) {
+                    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                    if (treeResult.success && treeResult.data) {
+                        panel.webview.postMessage({
+                            command: 'fileSystemChanged',
+                            payload: { workspaceTree: treeResult.data }
+                        });
+                    }
+                }
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'migrationCompleted',
+                    payload: { 
+                        success: false, 
+                        migrationPerformed: false,
+                        error: `Migration failed: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'getMigrationHistory': {
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'migrationHistoryResult',
+                    payload: { success: false, error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            try {
+                const result = await workspaceManager.getMigrationHistory(rootUri);
+                panel.webview.postMessage({
+                    command: 'migrationHistoryResult',
+                    payload: { 
+                        success: result.success, 
+                        history: result.data,
+                        error: result.error
+                    }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'migrationHistoryResult',
+                    payload: { 
+                        success: false, 
+                        error: `Failed to get migration history: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'testMigrationScenarios': {
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'migrationScenariosResult',
+                    payload: { success: false, error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            try {
+                const result = await workspaceManager.testMigrationScenarios(rootUri);
+                panel.webview.postMessage({
+                    command: 'migrationScenariosResult',
+                    payload: { 
+                        success: result.success, 
+                        scenarios: result.data?.scenarios,
+                        recommendations: result.data?.recommendations,
+                        error: result.error
+                    }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'migrationScenariosResult',
+                    payload: { 
+                        success: false, 
+                        error: `Failed to test migration scenarios: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'exportConfiguration': {
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'configurationExported',
+                    payload: { success: false, error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            try {
+                const result = await workspaceManager.exportConfiguration(rootUri);
+                panel.webview.postMessage({
+                    command: 'configurationExported',
+                    payload: { 
+                        success: result.success, 
+                        data: result.data,
+                        error: result.error
+                    }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'configurationExported',
+                    payload: { 
+                        success: false, 
+                        error: `Failed to export configuration: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'importConfiguration': {
+            const { data } = message.payload;
+            const rootUri = workspaceManager.getRootUri();
+            
+            if (!rootUri) {
+                panel.webview.postMessage({
+                    command: 'configurationImported',
+                    payload: { success: false, imported: false, error: 'No workspace root available' }
+                });
+                break;
+            }
+
+            try {
+                const result = await workspaceManager.importConfiguration(data, rootUri);
+                panel.webview.postMessage({
+                    command: 'configurationImported',
+                    payload: { 
+                        success: result.success, 
+                        imported: result.data || false,
+                        error: result.error
+                    }
+                });
+
+                // If import was successful, refresh workspace tree
+                if (result.success && result.data) {
+                    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                    if (treeResult.success && treeResult.data) {
+                        panel.webview.postMessage({
+                            command: 'fileSystemChanged',
+                            payload: { workspaceTree: treeResult.data }
+                        });
+                    }
+                }
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'configurationImported',
+                    payload: { 
+                        success: false, 
+                        imported: false,
+                        error: `Failed to import configuration: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
+
+        case 'getConfigurationTemplates': {
+            try {
+                const migrationUtility = workspaceManager.getMigrationUtility();
+                const templates = migrationUtility.getConfigurationTemplates();
+                panel.webview.postMessage({
+                    command: 'configurationTemplatesResult',
+                    payload: { 
+                        success: true, 
+                        templates: templates
+                    }
+                });
+            } catch (error: any) {
+                panel.webview.postMessage({
+                    command: 'configurationTemplatesResult',
+                    payload: { 
+                        success: false, 
+                        error: `Failed to get configuration templates: ${error.message}`
+                    }
+                });
+            }
+            break;
+        }
     }
 }
 
@@ -372,10 +787,15 @@ function stopDbAccessService() {
     }
 }
 
-async function runGeneratedKarateTest(featureFileContent: string, context: vscode.ExtensionContext, panel: vscode.WebviewPanel) {
+async function runGeneratedKarateTest(featureFileContent: string, context: vscode.ExtensionContext, panel: vscode.WebviewPanel, folderPath?: string) {
     console.log('[DEBUG:extension.ts] Running generated Karate test.');
+    console.log('[DEBUG:extension.ts] Test execution folder context:', folderPath);
+    
     try {
         await startDbAccessService(context);
+        
+        // Write database configurations to file for Java backend using folder-specific context
+        await writeDatabaseConfigurationsToFile(folderPath);
     } catch (error: any) {
         vscode.window.showErrorMessage(`Failed to start DB Access Service: ${error.message}`);
         panel.webview.postMessage({ command: 'testExecutionError', payload: { message: `Failed to start DB Access Service: ${error.message}` } });
@@ -576,4 +996,153 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
             console.error(`Failed to clean up temporary file: ${cleanupError.message}`);
         }
     });
+}/**
+
+ * Inject database configurations to the Java backend
+ */
+async function writeDatabaseConfigurationsToFile(folderPath?: string): Promise<void> {
+    if (!databaseConfigManager) {
+        console.warn('[DEBUG:extension.ts] Database config manager not initialized, skipping configuration file write');
+        return;
+    }
+
+    try {
+        // Determine the configuration resolution path
+        let configPath: string;
+        
+        if (folderPath) {
+            // Use the specific folder path for test execution
+            configPath = folderPath;
+            console.log('[DEBUG:extension.ts] Resolving database configuration for folder:', folderPath);
+        } else {
+            // Fallback to workspace root
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            configPath = workspaceRoot || '';
+            console.log('[DEBUG:extension.ts] No folder context provided, using workspace root:', configPath);
+        }
+
+        // Resolve configuration for the specific path
+        const resolvedConfig = await databaseConfigManager.resolveConfig(configPath);
+        
+        console.log('[DEBUG:extension.ts] Writing database configurations to file for path:', configPath);
+        console.log('[DEBUG:extension.ts] Resolved configuration:', resolvedConfig);
+
+        // Write configuration to a file that Java backend can read
+        const configPayload = {
+            databases: resolvedConfig,
+            folderContext: folderPath,
+            timestamp: new Date().toISOString()
+        };
+
+        const configFilePath = path.join(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || __dirname, 'target', 'qato-db-config.json');
+        
+        // Ensure target directory exists
+        const targetDir = path.dirname(configFilePath);
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        fs.writeFileSync(configFilePath, JSON.stringify(configPayload, null, 2));
+        console.log('[DEBUG:extension.ts] Database configuration written to:', configFilePath);
+
+        // Also send configuration update to Java backend if it's running
+        await sendConfigurationUpdateToJavaBackend(configPayload);
+        
+        // Request configuration reload from Java backend to ensure latest config is used
+        await requestConfigurationReloadFromJavaBackend();
+
+    } catch (error: any) {
+        console.error('[DEBUG:extension.ts] Failed to write database configurations to file:', error.message);
+        // Don't throw the error - let the test continue with default configurations
+        vscode.window.showWarningMessage(`Failed to write database configurations: ${error.message}. Using default configurations.`);
+    }
 }
+
+/**
+ * Send configuration update to Java backend
+ */
+async function sendConfigurationUpdateToJavaBackend(configPayload: any): Promise<void> {
+    try {
+        // Check if the Java backend is running by trying to reach the health endpoint
+        const healthUrl = `http://localhost:${QATO_CONFIG.DB_SERVICE.PORT}/actuator/health`;
+        
+        const healthController = new AbortController();
+        const healthTimeout = setTimeout(() => healthController.abort(), 2000);
+        
+        const healthResponse = await fetch(healthUrl, {
+            method: 'GET',
+            signal: healthController.signal
+        });
+        
+        clearTimeout(healthTimeout);
+
+        if (!healthResponse.ok) {
+            console.log('[DEBUG:extension.ts] Java backend not available, skipping configuration update');
+            return;
+        }
+
+        // Send configuration update to Java backend
+        const configUrl = `http://localhost:${QATO_CONFIG.DB_SERVICE.PORT}/config/update`;
+        
+        const configController = new AbortController();
+        const configTimeout = setTimeout(() => configController.abort(), 5000);
+        
+        const response = await fetch(configUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(configPayload),
+            signal: configController.signal
+        });
+        
+        clearTimeout(configTimeout);
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('[DEBUG:extension.ts] Configuration update sent to Java backend:', result);
+        } else {
+            console.warn('[DEBUG:extension.ts] Failed to send configuration update to Java backend:', response.status, response.statusText);
+        }
+
+    } catch (error: any) {
+        console.log('[DEBUG:extension.ts] Could not send configuration update to Java backend (service may not be running):', error.message);
+        // This is not a critical error - the configuration file is still written
+    }
+}
+
+/**
+ * Request configuration reload from Java backend to ensure latest config is used
+ */
+async function requestConfigurationReloadFromJavaBackend(): Promise<void> {
+    try {
+        // Send reload request to Java backend using the existing config/update endpoint
+        const reloadUrl = `http://localhost:${QATO_CONFIG.DB_SERVICE.PORT}/config/update`;
+        
+        const reloadController = new AbortController();
+        const reloadTimeout = setTimeout(() => reloadController.abort(), 5000);
+        
+        const response = await fetch(reloadUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ reloadFromFile: true }),
+            signal: reloadController.signal
+        });
+        
+        clearTimeout(reloadTimeout);
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('[DEBUG:extension.ts] Configuration reload requested from Java backend:', result);
+        } else {
+            console.warn('[DEBUG:extension.ts] Failed to request configuration reload from Java backend:', response.status, response.statusText);
+        }
+
+    } catch (error: any) {
+        console.log('[DEBUG:extension.ts] Could not request configuration reload from Java backend (service may not be running):', error.message);
+        // This is not a critical error - the configuration file is still available
+    }
+}
+
