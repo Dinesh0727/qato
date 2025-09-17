@@ -91,6 +91,7 @@ export const SimpleDatabaseConfig = ({
   const updateLocalConfig = (type: 'mysql' | 'redis' | 'clickhouse', updates: Partial<DatabaseConfig>) => {
     const currentConfig = configs[type] || createDefaultConfig(type);
     const updatedConfig = { ...currentConfig, ...updates };
+    setConfigs(prev => ({ ...prev, [type]: updatedConfig }));
   };
 
   // Commit current local config to parent (called onBlur or explicit actions)
