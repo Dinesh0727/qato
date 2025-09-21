@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { GripVertical, Trash2, Database, Zap, Globe } from 'lucide-react';
+import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,16 +10,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
 import { ApiHeadersEditor } from './ApiHeadersEditor';
 
-// Updated interface to include children prop
+// Updated interface to include children prop and collapse state
 interface StepCardProps {
   step: TestStep;
   index: number;
   onUpdate: (updates: Partial<TestStep>) => void;
   onDelete: () => void;
-  children?: React.ReactNode; // Added to support children
+  children?: React.ReactNode;
+  defaultCollapsed?: boolean; // New prop to control default state
 }
 
-export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCardProps) => {
+export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true }: StepCardProps) => {
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  // Move useRef to top level to avoid conditional hook call
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   const getStepIcon = () => {
     switch (step.type) {
       case 'sql':
@@ -43,6 +48,25 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCard
         return 'bg-green-600';
       case 'clickhouse':
         return 'bg-yellow-600';
+    }
+  };
+
+  const getStepSummary = () => {
+    switch (step.type) {
+      case 'sql':
+        const sqlConfig = step.config as SqlStepConfig;
+        return sqlConfig.query ? sqlConfig.query.substring(0, 60) + (sqlConfig.query.length > 60 ? '...' : '') : 'No query configured';
+      case 'redis':
+        const redisConfig = step.config as RedisStepConfig;
+        return redisConfig.command ? redisConfig.command.substring(0, 60) + (redisConfig.command.length > 60 ? '...' : '') : 'No command configured';
+      case 'api':
+        const apiConfig = step.config as ApiStepConfig;
+        return `${apiConfig.method} ${apiConfig.url || 'No URL configured'}`.substring(0, 80);
+      case 'clickhouse':
+        const clickhouseConfig = step.config as ClickhouseStepConfig;
+        return clickhouseConfig.query ? clickhouseConfig.query.substring(0, 60) + (clickhouseConfig.query.length > 60 ? '...' : '') : 'No query configured';
+      default:
+        return 'Step configuration';
     }
   };
 
@@ -109,8 +133,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCard
 
       case 'api':
         const apiConfig = step.config as ApiStepConfig;
-        // Add ref for auto-resizing textarea
-        const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+        // Handle body change with auto-resizing
         const handleBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           onUpdate({ config: { ...apiConfig, body: e.target.value } });
           // Auto-resize logic
@@ -270,70 +293,123 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children }: StepCard
 
   return (
     <Card
-      className={`relative p-6 rounded-2xl shadow-xl border-2 transition-all duration-300
-        ${getStepColor()} border-opacity-30
-        bg-gradient-to-br from-background via-${getStepColor().replace('bg-', '')}/10 to-background
+      className={`relative rounded-2xl shadow-lg border-2 transition-all duration-300 hover:shadow-xl
+        ${getStepColor()} border-opacity-20
+        ${isCollapsed 
+          ? 'bg-gradient-to-r from-background to-muted/30' 
+          : `bg-gradient-to-br from-background via-${getStepColor().replace('bg-', '')}/5 to-background`
+        }
       `}
     >
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <Button variant="ghost" size="sm" className="cursor-grab text-muted-foreground p-1 hover:bg-accent rounded-lg transition-colors duration-200">
+      {/* Collapsible Header */}
+      <div 
+        className={`flex items-center gap-3 cursor-pointer transition-all duration-200 hover:bg-muted/20 rounded-t-2xl ${isCollapsed ? 'p-4' : 'p-6 pb-4'}`}
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="cursor-grab text-muted-foreground p-1 hover:bg-accent rounded-lg transition-colors duration-200"
+          onClick={(e) => e.stopPropagation()} // Prevent collapse toggle when dragging
+        >
           <GripVertical className="h-4 w-4" />
         </Button>
+        
+        {/* Collapse/Expand Icon */}
+        <div className="flex items-center justify-center w-6 h-6 text-muted-foreground">
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
         
         <Badge className={`${getStepColor()} text-white rounded-lg px-3 py-1 flex items-center gap-1 shadow-md`}> 
           {getStepIcon()}
           <span className="ml-1 font-semibold tracking-wide uppercase">{step.type}</span>
         </Badge>
         
-        <div className="flex-1">
-          <Input
-            value={step.name}
-            onChange={(e) => onUpdate({ name: e.target.value })}
-            className="bg-transparent border-none text-foreground font-semibold p-0 h-auto focus-visible:ring-0 rounded-lg text-lg"
-          />
+        <div className="flex-1 min-w-0">
+          {isCollapsed ? (
+            <div className="space-y-1">
+              <div className="font-semibold text-foreground truncate">{step.name}</div>
+              <div className="text-sm text-muted-foreground font-mono truncate">{getStepSummary()}</div>
+              {step.delayMs > 0 && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock className="h-3 w-3" />
+                  <span>{step.delayMs}ms delay</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Input
+              value={step.name}
+              onChange={(e) => onUpdate({ name: e.target.value })}
+              onClick={(e) => e.stopPropagation()} // Prevent collapse when editing name
+              className="bg-transparent border-none text-foreground font-semibold p-0 h-auto focus-visible:ring-0 rounded-lg text-lg"
+            />
+          )}
         </div>
         
         <div className={`absolute -top-4 -right-4 z-10 flex items-center justify-center w-10 h-10 rounded-full border-4 ${getStepColor()} border-white shadow-lg text-white text-lg font-bold bg-gradient-to-br from-${getStepColor().replace('bg-', '')}/80 to-${getStepColor().replace('bg-', '')}/60`}>
           {index + 1}
         </div>
         
+        {isCollapsed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 rounded-lg transition-all duration-200"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsCollapsed(false);
+            }}
+            title="Edit step"
+          >
+            <Edit3 className="h-4 w-4" />
+          </Button>
+        )}
+        
         <Button
           variant="ghost"
           size="sm"
-          onClick={onDelete}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 p-1 rounded-lg transition-all duration-200"
         >
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Delay Input */}
-      <div className="mb-4">
-        <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
-        <Input
-          type="number"
-          value={step.delayMs === 0 ? '' : step.delayMs}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === '' || isNaN(Number(val))) {
-              onUpdate({ delayMs: 0 });
-            } else {
-              onUpdate({ delayMs: parseInt(val, 10) });
-            }
-          }}
-          min="0"
-          className="w-32 bg-muted border-border text-foreground rounded-lg shadow-sm focus:ring-2 focus:ring-primary/40"
-        />
-      </div>
+      {/* Expandable Content */}
+      {!isCollapsed && (
+        <div className="px-6 pb-6 space-y-4 animate-in slide-in-from-top-2 duration-200">
+          {/* Delay Input */}
+          <div>
+            <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
+            <Input
+              type="number"
+              value={step.delayMs === 0 ? '' : step.delayMs}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === '' || isNaN(Number(val))) {
+                  onUpdate({ delayMs: 0 });
+                } else {
+                  onUpdate({ delayMs: parseInt(val, 10) });
+                }
+              }}
+              min="0"
+              className="w-32 bg-muted border-border text-foreground rounded-lg shadow-sm focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
 
-      {/* Step Content */}
-      {renderStepContent()}
+          {/* Step Content */}
+          {renderStepContent()}
 
-      {/* Render Children (ValidationEditor and validation list) */}
-      {children && (
-        <div className="mt-6 pt-4 border-t border-border/50">
-          {children}
+          {/* Render Children (ValidationEditor and validation list) */}
+          {children && (
+            <div className="mt-6 pt-4 border-t border-border/50">
+              {children}
+            </div>
+          )}
         </div>
       )}
     </Card>
