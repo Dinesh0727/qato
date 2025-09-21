@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Settings } from 'lucide-react';
@@ -45,13 +45,15 @@ export const GlobalSettingsDialog = ({
 }: GlobalSettingsDialogProps) => {
   const [open, setOpen] = useState(false);
 
-  const handleGlobalDatabasesChange = (databases: DatabaseConfig[]) => {
+  const handleGlobalDatabasesChange = useCallback((databases: DatabaseConfig[]) => {
+    console.log('🔧 GlobalSettingsDialog: handleGlobalDatabasesChange called with:', databases);
     const updatedConfig = {
       ...globalConfig,
       databases
     };
+    console.log('🔧 GlobalSettingsDialog: calling onUpdateGlobalConfig with:', updatedConfig);
     onUpdateGlobalConfig(updatedConfig);
-  };
+  }, [globalConfig, onUpdateGlobalConfig]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -64,6 +66,9 @@ export const GlobalSettingsDialog = ({
         className="max-w-4xl max-h-[80vh] overflow-y-auto" 
         onOpenAutoFocus={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()} // ADD THIS
+        onEscapeKeyDown={(e) => e.preventDefault()} // ADD THIS
+        onInteractOutside={(e) => e.preventDefault()} // ADD THIS
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

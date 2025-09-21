@@ -60,6 +60,93 @@ export interface Folder {
   collections: Collection[];
 }
 
+// Workspace types for file system integration
+export interface WorkspaceTree {
+  rootPath: string;
+  folders: WorkspaceFolder[];
+  globalConfig?: GlobalConfig;
+}
+
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+  path: string;
+  collections: WorkspaceCollection[];
+  config?: FolderConfig;
+}
+
+export interface WorkspaceCollection {
+  id: string;
+  name: string;
+  path: string;
+  folderId: string;
+  testCases: WorkspaceTestCase[];
+  config?: CollectionConfig;
+}
+
+export interface WorkspaceTestCase {
+  id: string;
+  name: string;
+  path: string;
+  collectionId: string;
+  testCase: TestCase;
+}
+
+// Database connection configuration
+export interface DatabaseConfig {
+  id: string;
+  name: string;
+  type: 'mysql' | 'postgresql' | 'redis' | 'clickhouse';
+  host: string;
+  port: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  connectionString?: string;
+  timeout?: number;
+  maxConnections?: number;
+  ssl?: boolean;
+  description?: string;
+}
+
+// Global workspace configuration
+export interface GlobalConfig {
+  version: string;
+  defaultSettings?: {
+    timeout?: number;
+    retryCount?: number;
+  };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string; // Database ID to use as default for SQL steps
+    redis?: string; // Database ID to use as default for Redis steps
+    clickhouse?: string; // Database ID to use as default for ClickHouse steps
+  };
+}
+
+// Folder-level configuration
+export interface FolderConfig {
+  description?: string;
+  defaultCollectionSettings?: {
+    timeout?: number;
+  };
+  databases?: DatabaseConfig[];
+  defaultDatabaseConnections?: {
+    sql?: string;
+    redis?: string;
+    clickhouse?: string;
+  };
+}
+
+// Collection-level configuration (future use)
+export interface CollectionConfig {
+  description?: string;
+  defaultTestSettings?: {
+    timeout?: number;
+    retryCount?: number;
+  };
+}
+
 export interface ExecutionLog {
   id: string;
   level: string;

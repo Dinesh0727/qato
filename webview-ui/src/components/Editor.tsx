@@ -13,6 +13,7 @@ interface EditorProps {
   testCase: TestCase | null;
   onUpdateTestCase: (testCase: TestCase) => void;
   onRunTestCase: (testCase: TestCase) => void;
+  onDebugConfig?: (testCase: TestCase) => void;
   isExecuting: boolean;
   executionLogs: ExecutionLog[];
   testResults: { [key: string]: unknown } | null;
@@ -24,11 +25,12 @@ export const Editor = ({
   testCase, 
   onUpdateTestCase, 
   onRunTestCase, 
+  onDebugConfig,
   isExecuting, 
   executionLogs, 
   testResults, 
   stepResults, 
-  validationResults
+  validationResults 
 }: EditorProps) => {
   const [showAddStep, setShowAddStep] = useState(false);
   const { toast } = useToast();
@@ -200,14 +202,27 @@ export const Editor = ({
           <h2 className="text-lg font-semibold text-foreground">{testCase.name}</h2>
           <p className="text-sm text-muted-foreground">{testCase.steps.length} steps</p>
         </div>
-        <Button
-          onClick={() => onRunTestCase(testCase)}
-          disabled={isExecuting || testCase.steps.length === 0}
-          className="bg-green-600 hover:bg-green-700 text-white"
-        >
-          <Play className="h-4 w-4 mr-2" />
-          {isExecuting ? 'Running...' : 'Run Test'}
-        </Button>
+        <div className="flex gap-2">
+          {onDebugConfig && (
+            <Button
+              onClick={() => onDebugConfig(testCase)}
+              disabled={isExecuting}
+              variant="outline"
+              className="text-blue-600 border-blue-600 hover:bg-blue-50"
+            >
+              <Database className="h-4 w-4 mr-2" />
+              Debug Config
+            </Button>
+          )}
+          <Button
+            onClick={() => onRunTestCase(testCase)}
+            disabled={isExecuting || testCase.steps.length === 0}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <Play className="h-4 w-4 mr-2" />
+            {isExecuting ? 'Running...' : 'Run Test'}
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 min-h-0">

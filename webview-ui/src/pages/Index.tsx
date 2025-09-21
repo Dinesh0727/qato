@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { TestNavigator } from '@/components/TestNavigator';
 import { Editor } from '@/components/Editor';
 import { Header } from '@/components/Header';
-import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig } from '@/types';
+import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig, WorkspaceTree, WorkspaceFolder, WorkspaceCollection, WorkspaceTestCase, GlobalConfig, FolderConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 
 // Define the structure of the VS Code API object
@@ -21,39 +21,12 @@ interface KarateResult {
   }[];
 }
 
-// Workspace types for file system integration
-interface WorkspaceTree {
-  rootPath: string;
-  folders: WorkspaceFolder[];
-}
-
-interface WorkspaceFolder {
-  id: string;
-  name: string;
-  path: string;
-  collections: WorkspaceCollection[];
-}
-
-interface WorkspaceCollection {
-  id: string;
-  name: string;
-  path: string;
-  folderId: string;
-  testCases: WorkspaceTestCase[];
-}
-
-interface WorkspaceTestCase {
-  id: string;
-  name: string;
-  path: string;
-  collectionId: string;
-  testCase: TestCase;
-}
 
 // src/components/Index.tsx
 
-const generateGherkin = (testCase: TestCase): string => {
+const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): string => {
   console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
+  console.log('[DEBUG:Index.tsx] Workspace tree:', workspaceTree);
 
   // Get flow control configuration
   const flowControlConfig = testCase.flowControlConfig || {
@@ -140,8 +113,35 @@ const generateGherkin = (testCase: TestCase): string => {
           gherkin += `  * print 'query constructed: ' + query\n`;
         }
 
-        gherkin += `  Given url 'http://localhost:8280/query'\n`;
-        gherkin += `  And request { query: '#(query)', type: "${step.type}" }\n`;
+        // Build test context for configuration-aware queries
+        let testContext = {
+          testCaseName: testCase.name,
+          workspaceRoot: workspaceTree?.rootPath || '',
+          folderPath: '',
+          collectionPath: '',
+          globalConfig: workspaceTree?.globalConfig,
+          folderConfig: null
+        };
+
+        // Try to find the folder and collection paths from the workspace tree
+        if (workspaceTree) {
+          for (const folder of workspaceTree.folders) {
+            for (const collection of folder.collections) {
+              for (const wsTestCase of collection.testCases) {
+                if (wsTestCase.id === testCase.id) {
+                  testContext.folderPath = folder.path;
+                  testContext.collectionPath = collection.path;
+                  testContext.folderConfig = folder.config;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        gherkin += `  * def testContext = ${JSON.stringify(testContext)}\n`;
+        gherkin += `  Given url 'http://localhost:8280/query-with-context'\n`;
+        gherkin += `  And request { query: '#(query)', type: "${step.type}", context: '#(testContext)' }\n`;
         gherkin += `  When method post\n`;
         gherkin += `  Then status 200\n`;
         // Add error handling for DB responses
@@ -515,6 +515,7 @@ const Index = () => {
   const handleUpdateGlobalConfig = useCallback((config: any) => {
     if (!workspaceTree) return;
     
+    console.log('[DEBUG:Index.tsx] Sending updateGlobalConfig message:', JSON.stringify(config, null, 2));
     vscode.postMessage({
       command: 'updateGlobalConfig',
       payload: { config }
@@ -544,6 +545,7 @@ const Index = () => {
       
       case 'fileSystemChanged': {
         const { workspaceTree } = message.payload as { workspaceTree: WorkspaceTree };
+        console.log('[DEBUG:Index.tsx] Received fileSystemChanged message, updating workspace tree:', JSON.stringify(workspaceTree, null, 2));
         setWorkspaceTree(workspaceTree);
         setFolders(convertWorkspaceToFolders(workspaceTree));
         break;
@@ -556,7 +558,7 @@ const Index = () => {
       }
       
       case 'inputBoxResult': {
-        const { value, context } = message.payload as { value?: string; context: unknown };
+        const { value, context } = message.payload as { value?: string; context: any };
         if (!value) return;
 
         switch (context.type) {
@@ -590,7 +592,7 @@ const Index = () => {
           console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
           runStartTime.current = null;
         }
-        const payload = message.payload as unknown;
+        const payload = message.payload as any;
         const { parsedResults, validationResults, ...karateSummary } = payload;
         setTestResults(karateSummary);
         setStepResults(parsedResults || []);
@@ -636,7 +638,7 @@ const Index = () => {
     }
   }, [isWorkspaceInitialized]);
 
-  const handleRunTestCase = async (testCase: TestCase) => {
+    const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
 
     setIsExecuting(true);
@@ -654,10 +656,18 @@ const Index = () => {
     });
 
     try {
-      const gherkinContent = generateGherkin(testCase);
+      const gherkinContent = generateGherkin(testCase, workspaceTree);
       vscode.postMessage({
         command: 'runGeneratedTest',
-        payload: { featureFileContent: gherkinContent }
+        payload: { 
+          featureFileContent: gherkinContent,
+          testContext: {
+            testCaseName: testCase.name,
+            workspaceRoot: workspaceTree?.rootPath || '',
+            globalConfig: workspaceTree?.globalConfig,
+            folderConfig: null // Will be determined by the backend
+          }
+        }
       });
     } catch (error) {
       console.error('Error in handleRunTestCase:', error);
@@ -667,6 +677,74 @@ const Index = () => {
         variant: "destructive",
       });
       setIsExecuting(false);
+    }
+  };
+
+  const handleDebugConfig = async (testCase: TestCase) => {
+    if (!testCase) return;
+
+    console.log('[DEBUG:Index.tsx] Debugging configuration for test case:', testCase);
+    console.log('[DEBUG:Index.tsx] Workspace tree:', workspaceTree);
+
+    try {
+      // Find the folder and collection paths
+      let folderPath = '';
+      let collectionPath = '';
+      let folderConfig = null;
+
+      if (workspaceTree) {
+        for (const folder of workspaceTree.folders) {
+          for (const collection of folder.collections) {
+            for (const wsTestCase of collection.testCases) {
+              if (wsTestCase.id === testCase.id) {
+                folderPath = folder.path;
+                collectionPath = collection.path;
+                folderConfig = folder.config;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      const testContext = {
+        testCaseName: testCase.name,
+        workspaceRoot: workspaceTree?.rootPath || '',
+        folderPath: folderPath,
+        collectionPath: collectionPath,
+        globalConfig: workspaceTree?.globalConfig,
+        folderConfig: folderConfig
+      };
+
+      console.log('[DEBUG:Index.tsx] Test context for debug:', testContext);
+
+      // Send debug request to backend
+      const response = await fetch('http://localhost:8280/debug-config', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ context: testContext })
+      });
+
+      const debugResult = await response.json();
+      console.log('[DEBUG:Index.tsx] Debug result:', debugResult);
+
+      toast({
+        title: "Configuration Debug",
+        description: debugResult.success ? 
+          `Configuration loaded successfully. Check console for details.` : 
+          `Configuration debug failed: ${debugResult.error}`,
+        variant: debugResult.success ? "default" : "destructive",
+      });
+
+    } catch (error) {
+      console.error('Error in handleDebugConfig:', error);
+      toast({
+        title: "Debug Error",
+        description: error instanceof Error ? error.message : 'An unknown error occurred while debugging configuration.',
+        variant: "destructive",
+      });
     }
   };
 
@@ -711,16 +789,17 @@ const Index = () => {
         />
 
         <div className="flex-1 flex flex-col min-h-0">
-          <Editor
-            testCase={selectedTestCase}
-            onUpdateTestCase={handleUpdateTestCase}
-            onRunTestCase={handleRunTestCase}
-            isExecuting={isExecuting}
-            executionLogs={executionLogs}
-            testResults={testResults}
-            stepResults={stepResults}
-            validationResults={validationResults}
-          />
+            <Editor
+              testCase={selectedTestCase}
+              onUpdateTestCase={handleUpdateTestCase}
+              onRunTestCase={handleRunTestCase}
+              onDebugConfig={handleDebugConfig}
+              isExecuting={isExecuting}
+              executionLogs={executionLogs}
+              testResults={testResults}
+              stepResults={stepResults}
+              validationResults={validationResults}
+            />
         </div>
       </div>
     </div>
