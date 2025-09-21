@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -6,7 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { Database, Save, X } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Database, Save, X, Plus, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface DatabaseConfig {
   id: string;
@@ -25,7 +26,7 @@ interface DatabaseConfig {
 }
 
 interface SimpleDatabaseConfigProps {
-  databases: DatabaseConfig[];
+  databases?: DatabaseConfig[];
   onDatabasesChange: (databases: DatabaseConfig[]) => void;
   level: 'global' | 'folder';
   title?: string;
@@ -33,25 +34,54 @@ interface SimpleDatabaseConfigProps {
 }
 
 export const SimpleDatabaseConfig = ({
-  databases,
+  databases = [],
   onDatabasesChange,
   level,
   title = "Database Configurations",
   description = "Configure database connections for your test cases"
 }: SimpleDatabaseConfigProps) => {
-  const [configs, setConfigs] = useState<{
+  // Use refs to store current form data - NO STATE UPDATES DURING TYPING
+  const formDataRef = useRef<{
     mysql?: DatabaseConfig;
     redis?: DatabaseConfig;
     clickhouse?: DatabaseConfig;
-  }>(() => {
+  }>({});
+
+  // Only state that matters for rendering UI structure
+  const [activeConfigs, setActiveConfigs] = useState<{
+    mysql: boolean;
+    redis: boolean;
+    clickhouse: boolean;
+  }>({ mysql: false, redis: false, clickhouse: false });
+
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Initialize from parent data
+  const initializeFromDatabases = useCallback(() => {
+    console.log('🔧 Initializing from databases:', databases);
+    
     const configMap: any = {};
-    databases.forEach(db => {
-      if (db.type === 'mysql' || db.type === 'redis' || db.type === 'clickhouse') {
-        configMap[db.type] = db;
-      }
-    });
-    return configMap;
-  });
+    const activeMap = { mysql: false, redis: false, clickhouse: false };
+    
+    if (Array.isArray(databases)) {
+      databases.forEach(db => {
+        if (db.type === 'mysql' || db.type === 'redis' || db.type === 'clickhouse') {
+          configMap[db.type] = JSON.parse(JSON.stringify(db));
+          activeMap[db.type] = true;
+        }
+      });
+    }
+    
+    formDataRef.current = configMap;
+    setActiveConfigs(activeMap);
+    setHasUnsavedChanges(false);
+    setSaveStatus('idle');
+  }, [databases]);
+
+  useEffect(() => {
+    initializeFromDatabases();
+  }, [initializeFromDatabases]);
 
   const getDefaultPort = (type: string): number => {
     switch (type) {
@@ -77,47 +107,167 @@ export const SimpleDatabaseConfig = ({
     description: `${type.charAt(0).toUpperCase() + type.slice(1)} database connection`
   });
 
-  const handleConfigChange = (type: 'mysql' | 'redis' | 'clickhouse', updates: Partial<DatabaseConfig>) => {
-    const currentConfig = configs[type] || createDefaultConfig(type);
-    const updatedConfig = { ...currentConfig, ...updates };
+  // Update form data in ref only - NO RE-RENDERS
+  const updateFormData = (type: 'mysql' | 'redis' | 'clickhouse', field: string, value: unknown) => {
+    if (!formDataRef.current[type]) {
+      formDataRef.current[type] = createDefaultConfig(type);
+    }
     
-    const newConfigs = { ...configs, [type]: updatedConfig };
-    setConfigs(newConfigs);
+    (formDataRef.current[type] as any)[field] = value;
     
-    // Update the databases array
-    const updatedDatabases = databases.filter(db => db.type !== type);
-    updatedDatabases.push(updatedConfig);
-    onDatabasesChange(updatedDatabases);
+    // Only set unsaved changes flag - no other state updates
+    if (!hasUnsavedChanges) {
+      setHasUnsavedChanges(true);
+      setSaveStatus('idle');
+    }
   };
 
-  const handleRemoveConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
-    const newConfigs = { ...configs };
-    delete newConfigs[type];
-    setConfigs(newConfigs);
-    
-    // Update the databases array
-    const updatedDatabases = databases.filter(db => db.type !== type);
-    onDatabasesChange(updatedDatabases);
+  const addConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
+    console.log('➕ Adding config:', type);
+    formDataRef.current[type] = createDefaultConfig(type);
+    setActiveConfigs(prev => ({ ...prev, [type]: true }));
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
   };
 
-  const handleAddConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
-    const newConfig = createDefaultConfig(type);
-    const newConfigs = { ...configs, [type]: newConfig };
-    setConfigs(newConfigs);
-    
-    // Update the databases array
-    const updatedDatabases = [...databases.filter(db => db.type !== type), newConfig];
-    onDatabasesChange(updatedDatabases);
+  const removeConfig = (type: 'mysql' | 'redis' | 'clickhouse') => {
+    console.log('🗑️ Removing config:', type);
+    delete formDataRef.current[type];
+    setActiveConfigs(prev => ({ ...prev, [type]: false }));
+    setHasUnsavedChanges(true);
+    setSaveStatus('idle');
   };
 
-  const DatabaseForm = ({ 
+  const handleSave = () => {
+    console.log('💾 Saving configurations...');
+    console.log('💾 Current form data:', formDataRef.current);
+    setSaveStatus('saving');
+    
+    const updatedDatabases: DatabaseConfig[] = [];
+    
+    // Keep existing non-target databases
+    const currentDatabases = Array.isArray(databases) ? databases : [];
+    const otherDatabases = currentDatabases.filter(
+      db => db.type !== 'mysql' && db.type !== 'redis' && db.type !== 'clickhouse'
+    );
+    updatedDatabases.push(...otherDatabases);
+    
+    // Add current form data
+    Object.values(formDataRef.current).forEach(config => {
+      if (config) {
+        updatedDatabases.push(config);
+      }
+    });
+    
+    console.log('💾 Updated databases to save:', updatedDatabases);
+    
+    setTimeout(() => {
+      console.log('💾 Calling onDatabasesChange with:', updatedDatabases);
+      onDatabasesChange(updatedDatabases);
+      setHasUnsavedChanges(false);
+      setSaveStatus('saved');
+      
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    }, 300);
+  };
+
+  const handleDiscard = () => {
+    console.log('🚮 Discarding changes...');
+    initializeFromDatabases();
+  };
+
+  // Controlled input component that uses refs
+  const RefControlledInput = ({ 
+    type,
+    field,
+    defaultValue,
+    inputType = "text",
+    placeholder,
+    ...props 
+  }: {
+    type: 'mysql' | 'redis' | 'clickhouse';
+    field: string;
+    defaultValue: any;
+    inputType?: string;
+    placeholder?: string;
+    [key: string]: any;
+  }) => {
+    const inputRef = useRef<HTMLInputElement>(null);
+    
+    // Set initial value
+    useEffect(() => {
+      if (inputRef.current && defaultValue !== undefined) {
+        inputRef.current.value = defaultValue.toString();
+      }
+    }, [defaultValue]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = inputType === 'number' ? 
+        (parseInt(e.target.value) || 0) : 
+        e.target.value;
+      
+      updateFormData(type, field, value);
+    };
+
+    return (
+      <Input
+        ref={inputRef}
+        type={inputType}
+        onChange={handleChange}
+        placeholder={placeholder}
+        {...props}
+      />
+    );
+  };
+
+  // Controlled textarea component that uses refs
+  const RefControlledTextarea = ({ 
+    type,
+    field,
+    defaultValue,
+    placeholder,
+    rows = 3,
+    ...props 
+  }: {
+    type: 'mysql' | 'redis' | 'clickhouse';
+    field: string;
+    defaultValue: any;
+    placeholder?: string;
+    rows?: number;
+    [key: string]: any;
+  }) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    
+    // Set initial value
+    useEffect(() => {
+      if (textareaRef.current && defaultValue !== undefined) {
+        textareaRef.current.value = defaultValue.toString();
+      }
+    }, [defaultValue]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      updateFormData(type, field, e.target.value);
+    };
+
+    return (
+      <Textarea
+        ref={textareaRef}
+        onChange={handleChange}
+        placeholder={placeholder}
+        rows={rows}
+        {...props}
+      />
+    );
+  };
+
+  const DatabaseConfigForm = ({ 
     type, 
     config 
   }: { 
     type: 'mysql' | 'redis' | 'clickhouse'; 
     config: DatabaseConfig;
   }) => (
-    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+    <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className={`w-3 h-3 rounded-full ${
@@ -125,57 +275,59 @@ export const SimpleDatabaseConfig = ({
             type === 'redis' ? 'bg-red-500' :
             'bg-yellow-500'
           }`} />
-          <h4 className="font-medium">{type.charAt(0).toUpperCase() + type.slice(1)} Configuration</h4>
+          <h4 className="font-medium">
+            {type.charAt(0).toUpperCase() + type.slice(1)} Configuration
+          </h4>
         </div>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => handleRemoveConfig(type)}
-          className="text-destructive hover:text-destructive"
+          onClick={() => removeConfig(type)}
+          className="text-destructive hover:text-destructive hover:bg-destructive/10"
         >
           <X className="h-4 w-4" />
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor={`${type}-name`}>Connection Name</Label>
-          <Input
-            id={`${type}-name`}
-            value={config.name}
-            onChange={(e) => handleConfigChange(type, { name: e.target.value })}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Connection Name</Label>
+          <RefControlledInput
+            type={type}
+            field="name"
+            defaultValue={config.name}
             placeholder={`${type.charAt(0).toUpperCase() + type.slice(1)} Connection`}
           />
         </div>
-        <div>
-          <Label htmlFor={`${type}-host`}>Host</Label>
-          <Input
-            id={`${type}-host`}
-            value={config.host}
-            onChange={(e) => handleConfigChange(type, { host: e.target.value })}
+        <div className="space-y-2">
+          <Label>Host</Label>
+          <RefControlledInput
+            type={type}
+            field="host"
+            defaultValue={config.host}
             placeholder="localhost"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor={`${type}-port`}>Port</Label>
-          <Input
-            id={`${type}-port`}
-            type="number"
-            value={config.port}
-            onChange={(e) => handleConfigChange(type, { port: parseInt(e.target.value) || getDefaultPort(type) })}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Port</Label>
+          <RefControlledInput
+            type={type}
+            field="port"
+            inputType="number"
+            defaultValue={config.port}
             placeholder={getDefaultPort(type).toString()}
           />
         </div>
         {type !== 'redis' && (
-          <div>
-            <Label htmlFor={`${type}-database`}>Database Name</Label>
-            <Input
-              id={`${type}-database`}
-              value={config.database || ''}
-              onChange={(e) => handleConfigChange(type, { database: e.target.value })}
+          <div className="space-y-2">
+            <Label>Database Name</Label>
+            <RefControlledInput
+              type={type}
+              field="database"
+              defaultValue={config.database || ''}
               placeholder="test_db"
             />
           </div>
@@ -183,47 +335,47 @@ export const SimpleDatabaseConfig = ({
       </div>
 
       {type !== 'redis' && (
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor={`${type}-username`}>Username</Label>
-            <Input
-              id={`${type}-username`}
-              value={config.username || ''}
-              onChange={(e) => handleConfigChange(type, { username: e.target.value })}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Username</Label>
+            <RefControlledInput
+              type={type}
+              field="username"
+              defaultValue={config.username || ''}
               placeholder="root"
             />
           </div>
-          <div>
-            <Label htmlFor={`${type}-password`}>Password</Label>
-            <Input
-              id={`${type}-password`}
-              type="password"
-              value={config.password || ''}
-              onChange={(e) => handleConfigChange(type, { password: e.target.value })}
+          <div className="space-y-2">
+            <Label>Password</Label>
+            <RefControlledInput
+              type={type}
+              field="password"
+              inputType="password"
+              defaultValue={config.password || ''}
               placeholder="••••••••"
             />
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor={`${type}-timeout`}>Timeout (ms)</Label>
-          <Input
-            id={`${type}-timeout`}
-            type="number"
-            value={config.timeout || ''}
-            onChange={(e) => handleConfigChange(type, { timeout: parseInt(e.target.value) || 30000 })}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Timeout (ms)</Label>
+          <RefControlledInput
+            type={type}
+            field="timeout"
+            inputType="number"
+            defaultValue={config.timeout || 30000}
             placeholder="30000"
           />
         </div>
-        <div>
-          <Label htmlFor={`${type}-maxConnections`}>Max Connections</Label>
-          <Input
-            id={`${type}-maxConnections`}
-            type="number"
-            value={config.maxConnections || ''}
-            onChange={(e) => handleConfigChange(type, { maxConnections: parseInt(e.target.value) || 10 })}
+        <div className="space-y-2">
+          <Label>Max Connections</Label>
+          <RefControlledInput
+            type={type}
+            field="maxConnections"
+            inputType="number"
+            defaultValue={config.maxConnections || 10}
             placeholder="10"
           />
         </div>
@@ -231,23 +383,47 @@ export const SimpleDatabaseConfig = ({
 
       <div className="flex items-center space-x-2">
         <Switch
-          id={`${type}-ssl`}
           checked={config.ssl || false}
-          onCheckedChange={(checked) => handleConfigChange(type, { ssl: checked })}
+          onCheckedChange={(checked) => updateFormData(type, 'ssl', checked)}
         />
-        <Label htmlFor={`${type}-ssl`}>Enable SSL</Label>
+        <Label>Enable SSL</Label>
       </div>
 
-      <div>
-        <Label htmlFor={`${type}-description`}>Description</Label>
-        <Textarea
-          id={`${type}-description`}
-          value={config.description || ''}
-          onChange={(e) => handleConfigChange(type, { description: e.target.value })}
+      <div className="space-y-2">
+        <Label>Description</Label>
+        <RefControlledTextarea
+          type={type}
+          field="description"
+          defaultValue={config.description || ''}
           placeholder={`Optional description for this ${type} connection`}
-          rows={2}
         />
       </div>
+    </div>
+  );
+
+  const DatabaseTypeCard = ({ 
+    type,
+    colorClass,
+    displayName 
+  }: { 
+    type: 'mysql' | 'redis' | 'clickhouse';
+    colorClass: string;
+    displayName: string;
+  }) => (
+    <div className="p-6 border-2 border-dashed rounded-lg text-center hover:border-primary/50 transition-colors">
+      <div className="flex items-center justify-center gap-2 mb-3">
+        <div className={`w-4 h-4 rounded-full ${colorClass}`} />
+        <span className="font-medium text-muted-foreground">{displayName} Configuration</span>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => addConfig(type)}
+        className="hover:bg-primary/10"
+      >
+        <Plus className="h-4 w-4 mr-1" />
+        Add {displayName} Connection
+      </Button>
     </div>
   );
 
@@ -261,69 +437,108 @@ export const SimpleDatabaseConfig = ({
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
 
+      {hasUnsavedChanges && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            You have unsaved changes. Click "Save Changes" to apply them or "Discard Changes" to reset.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {saveStatus === 'saved' && (
+        <Alert className="border-green-200 bg-green-50 text-green-800">
+          <CheckCircle className="h-4 w-4" />
+          <AlertDescription>
+            Database configurations saved successfully!
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-4">
-        {/* MySQL Configuration */}
-        {configs.mysql ? (
-          <DatabaseForm type="mysql" config={configs.mysql} />
+        {activeConfigs.mysql ? (
+          <DatabaseConfigForm 
+            type="mysql" 
+            config={formDataRef.current.mysql || createDefaultConfig('mysql')} 
+          />
         ) : (
-          <div className="p-4 border-2 border-dashed rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-3 h-3 rounded-full bg-blue-500" />
-              <span className="text-sm font-medium">MySQL Configuration</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleAddConfig('mysql')}
-            >
-              Add MySQL Connection
-            </Button>
-          </div>
+          <DatabaseTypeCard 
+            type="mysql" 
+            colorClass="bg-blue-500" 
+            displayName="MySQL" 
+          />
         )}
 
-        {/* Redis Configuration */}
-        {configs.redis ? (
-          <DatabaseForm type="redis" config={configs.redis} />
+        {activeConfigs.redis ? (
+          <DatabaseConfigForm 
+            type="redis" 
+            config={formDataRef.current.redis || createDefaultConfig('redis')} 
+          />
         ) : (
-          <div className="p-4 border-2 border-dashed rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-3 h-3 rounded-full bg-red-500" />
-              <span className="text-sm font-medium">Redis Configuration</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleAddConfig('redis')}
-            >
-              Add Redis Connection
-            </Button>
-          </div>
+          <DatabaseTypeCard 
+            type="redis" 
+            colorClass="bg-red-500" 
+            displayName="Redis" 
+          />
         )}
 
-        {/* ClickHouse Configuration */}
-        {configs.clickhouse ? (
-          <DatabaseForm type="clickhouse" config={configs.clickhouse} />
+        {activeConfigs.clickhouse ? (
+          <DatabaseConfigForm 
+            type="clickhouse" 
+            config={formDataRef.current.clickhouse || createDefaultConfig('clickhouse')} 
+          />
         ) : (
-          <div className="p-4 border-2 border-dashed rounded-lg text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <div className="w-3 h-3 rounded-full bg-yellow-500" />
-              <span className="text-sm font-medium">ClickHouse Configuration</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleAddConfig('clickhouse')}
-            >
-              Add ClickHouse Connection
-            </Button>
-          </div>
+          <DatabaseTypeCard 
+            type="clickhouse" 
+            colorClass="bg-yellow-500" 
+            displayName="ClickHouse" 
+          />
         )}
       </div>
 
-      <Separator />
-      <div className="text-xs text-muted-foreground">
-        These database connections will be available for {level === 'global' ? 'all test cases in this workspace' : 'test cases in this folder'}.
+      <div className="flex items-center justify-between pt-4">
+        <div className="text-xs text-muted-foreground">
+          These database connections will be available for{' '}
+          {level === 'global' 
+            ? 'all test cases in this workspace' 
+            : 'test cases in this folder'
+          }.
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {hasUnsavedChanges && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDiscard}
+              disabled={saveStatus === 'saving'}
+            >
+              <X className="h-4 w-4 mr-1" />
+              Discard Changes
+            </Button>
+          )}
+          <Button
+            onClick={handleSave}
+            disabled={!hasUnsavedChanges || saveStatus === 'saving'}
+            size="sm"
+            className="min-w-[120px]"
+          >
+            {saveStatus === 'saving' ? (
+              <>
+                <div className="w-4 h-4 mr-1 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-1" />
+                Save Changes
+              </>
+            )}
+          </Button>
+        </div>
       </div>
+
+      <Separator className="my-4" />
     </div>
   );
 };

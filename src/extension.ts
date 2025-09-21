@@ -148,7 +148,7 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
 
     switch (message.command) {
         case 'runGeneratedTest':
-            runGeneratedKarateTest(message.payload.featureFileContent, context, panel);
+            runGeneratedKarateTest(message.payload.featureFileContent, context, panel, message.payload.testContext);
             break;
 
         case 'showInputBox': {
@@ -286,9 +286,11 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
 
         case 'updateGlobalConfig': {
             const { config } = message.payload;
+            console.log('[DEBUG:extension.ts] Updating global config:', JSON.stringify(config, null, 2));
             const rootUri = workspaceManager.getRootUri();
             
             if (!rootUri) {
+                console.error('[DEBUG:extension.ts] No workspace root available for global config update');
                 panel.webview.postMessage({
                     command: 'workspaceError',
                     payload: { error: 'No workspace root available' }
@@ -298,10 +300,24 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
 
             const result = await workspaceManager.updateGlobalConfig(rootUri, config);
             if (!result.success) {
+                console.error('[DEBUG:extension.ts] Failed to update global config:', result.error);
                 panel.webview.postMessage({
                     command: 'workspaceError',
                     payload: { error: result.error || 'Failed to update global config' }
                 });
+            } else {
+                console.log('[DEBUG:extension.ts] Global config updated successfully, refreshing workspace tree...');
+                // Immediately refresh workspace tree after successful global config update
+                const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                if (treeResult.success && treeResult.data) {
+                    console.log('[DEBUG:extension.ts] Workspace tree refreshed, sending to webview');
+                    panel.webview.postMessage({
+                        command: 'fileSystemChanged',
+                        payload: { workspaceTree: treeResult.data }
+                    });
+                } else {
+                    console.error('[DEBUG:extension.ts] Failed to refresh workspace tree after global config update');
+                }
             }
             break;
         }
@@ -316,6 +332,18 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
                     command: 'workspaceError',
                     payload: { error: result.error || 'Failed to update folder config' }
                 });
+            } else {
+                // Immediately refresh workspace tree after successful folder config update
+                const rootUri = workspaceManager.getRootUri();
+                if (rootUri) {
+                    const treeResult = await workspaceManager.getWorkspaceTree(rootUri);
+                    if (treeResult.success && treeResult.data) {
+                        panel.webview.postMessage({
+                            command: 'fileSystemChanged',
+                            payload: { workspaceTree: treeResult.data }
+                        });
+                    }
+                }
             }
             break;
         }
@@ -372,8 +400,10 @@ function stopDbAccessService() {
     }
 }
 
-async function runGeneratedKarateTest(featureFileContent: string, context: vscode.ExtensionContext, panel: vscode.WebviewPanel) {
+async function runGeneratedKarateTest(featureFileContent: string, context: vscode.ExtensionContext, panel: vscode.WebviewPanel, testContext?: any) {
     console.log('[DEBUG:extension.ts] Running generated Karate test.');
+    console.log('[DEBUG:extension.ts] Test context:', testContext);
+    
     try {
         await startDbAccessService(context);
     } catch (error: any) {

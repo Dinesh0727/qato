@@ -1,6 +1,6 @@
 export const QATO_CONFIG = {
     DB_SERVICE: {
-        JAR_NAME: 'qa-tool-orchestrator-0.0.1-SNAPSHOT.jar'
+        JAR_NAME: 'qa-tool-orchaestrator-0.0.1-SNAPSHOT.jar'
     },
     KARATE: {
         JAR_VERSION: '1.5.1',

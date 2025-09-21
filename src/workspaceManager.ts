@@ -438,12 +438,15 @@ export class WorkspaceManager {
    */
   async updateGlobalConfig(rootUri: vscode.Uri, config: GlobalConfig): Promise<FileSystemResult<void>> {
     try {
+      console.log('[WorkspaceManager] Updating global config:', JSON.stringify(config, null, 2));
       const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
       const configContent = JSON.stringify(config, null, 2);
       await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
+      console.log('[WorkspaceManager] Global config saved successfully to:', globalConfigPath.fsPath);
       
       return { success: true };
     } catch (error: any) {
+      console.error('[WorkspaceManager] Failed to update global config:', error);
       return { 
         success: false, 
         error: `Failed to update global config: ${error.message}` 
