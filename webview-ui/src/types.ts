@@ -184,6 +184,8 @@ export interface ValidationResult {
   message?: string;
   timestamp: string;
   karateError?: string;
+  stepType?: 'api' | 'sql' | 'redis' | 'clickhouse'; // Step type for which this validation is for
+  stepName?: string; // Step name for better identification
 }
 
 // Flow Control Types

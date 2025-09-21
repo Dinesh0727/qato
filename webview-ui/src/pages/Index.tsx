@@ -270,7 +270,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
           `Validation failed for ${sanitizedTarget}`;
 
         gherkin += `  * def validationMessage = validationResult == 'success' ? '' : '${customMessage}'\n`;
-        gherkin += `  * def validationPayload = { id: '${validation.id}', status: '#(validationResult)', actualValue: '#(validationActual)', expectedValue: '#(validationExpected)', dataType: '${validation.dataType}', target: '${sanitizedTarget}', timestamp: '#(currentTimestamp)', message: '#(validationMessage)' }\n`;
+        gherkin += `  * def validationPayload = { id: '${validation.id}', status: '#(validationResult)', actualValue: '#(validationActual)', expectedValue: '#(validationExpected)', dataType: '${validation.dataType}', target: '${sanitizedTarget}', timestamp: '#(currentTimestamp)', message: '#(validationMessage)', stepType: '${step.type}', stepName: '${step.name}' }\n`;
         gherkin += `  * print '---QATO_VALIDATION_START---'\n`;
         gherkin += `  * print karate.toJson(validationPayload)\n`;
         gherkin += `  * print '---QATO_VALIDATION_END---'\n`;
@@ -590,7 +590,7 @@ const Index = () => {
       }
       
       case 'inputBoxResult': {
-        const { value, context } = message.payload as { value?: string; context: any };
+        const { value, context } = message.payload as { value?: string; context: unknown };
         if (!value) return;
 
         switch (context.type) {
