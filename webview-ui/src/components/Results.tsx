@@ -23,6 +23,8 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
   const [collapsedBody, setCollapsedBody] = useState<{ [stepName: string]: boolean }>({});
   const [containerHeight, setContainerHeight] = useState<number>(400);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [validationStatusFilter, setValidationStatusFilter] = useState<'all' | 'success' | 'failure'>('all');
+  const [validationStepTypeFilter, setValidationStepTypeFilter] = useState<'all' | 'api' | 'sql' | 'clickhouse' | 'redis'>('all');
 
   console.log("[DEBUG:Results.tsx] Received stepResults prop:", stepResults);
   console.log("[DEBUG:Results.tsx] Received validationResults prop:", validationResults);
@@ -62,6 +64,14 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
 
   const apiResults = useMemo(() => stepResults.filter(r => r.type === 'api' || r.type === 'karate_error'), [stepResults]);
   const dbResults = useMemo(() => stepResults.filter(r => ['sql', 'redis', 'clickhouse', 'db_error'].includes(r.type)), [stepResults]);
+  
+  const filteredValidationResults = useMemo(() => {
+    return validationResults.filter(valRes => {
+      const statusMatch = validationStatusFilter === 'all' || valRes.status === validationStatusFilter;
+      const stepTypeMatch = validationStepTypeFilter === 'all' || valRes.stepType === validationStepTypeFilter;
+      return statusMatch && stepTypeMatch;
+    });
+  }, [validationResults, validationStatusFilter, validationStepTypeFilter]);
 
   const toggleApiStep = (stepName: string) => {
     setExpandedApiSteps(prev => {
@@ -393,16 +403,115 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                   <p className="text-sm text-muted-foreground/70">Add validations to your test steps and run the test case</p>
                 </div>
               ) : (
+                <>
+                  {/* Filter Controls */}
+                  <div className="mb-4 flex flex-wrap gap-2 items-center">
+                    <span className="text-sm font-medium text-muted-foreground">Filter by:</span>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant={validationStatusFilter === 'all' ? 'default' : 'outline'}
+                        onClick={() => setValidationStatusFilter('all')}
+                        className="text-xs"
+                      >
+                        All ({validationResults.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={validationStatusFilter === 'success' ? 'default' : 'outline'}
+                        onClick={() => setValidationStatusFilter('success')}
+                        className="text-xs text-green-600 hover:text-green-700"
+                      >
+                        Success ({validationResults.filter(v => v.status === 'success').length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={validationStatusFilter === 'failure' ? 'default' : 'outline'}
+                        onClick={() => setValidationStatusFilter('failure')}
+                        className="text-xs text-red-600 hover:text-red-700"
+                      >
+                        Failed ({validationResults.filter(v => v.status === 'failure').length})
+                      </Button>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        variant={validationStepTypeFilter === 'all' ? 'default' : 'outline'}
+                        onClick={() => setValidationStepTypeFilter('all')}
+                        className="text-xs"
+                      >
+                        All Types
+                      </Button>
+                      {['api', 'sql', 'clickhouse', 'redis'].map(type => {
+                        const count = validationResults.filter(v => v.stepType === type).length;
+                        if (count === 0) return null;
+                        return (
+                          <Button
+                            key={type}
+                            size="sm"
+                            variant={validationStepTypeFilter === type ? 'default' : 'outline'}
+                            onClick={() => setValidationStepTypeFilter(type as unknown)}
+                            className="text-xs"
+                          >
+                            {type.toUpperCase()} ({count})
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {filteredValidationResults.length === 0 && validationResults.length > 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-2">🔍</div>
+                  <p className="text-muted-foreground">No validation results match the current filters</p>
+                  <p className="text-sm text-muted-foreground/70">Try adjusting your filter criteria</p>
+                </div>
+              ) : (
                 <div className="space-y-4">
-                  {validationResults.map((valRes, index) => (
+                  {filteredValidationResults.map((valRes, index) => {
+                    const getStepTypeColor = (stepType?: string) => {
+                      switch (stepType) {
+                        case 'api': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+                        case 'sql': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+                        case 'clickhouse': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+                        case 'redis': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
+                        default: return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+                      }
+                    };
+
+                    const getStatusIcon = (status: string) => {
+                      return status === 'success' ? 
+                        <CheckCircle className="h-4 w-4 text-green-500" /> : 
+                        <XCircle className="h-4 w-4 text-red-500" />;
+                    };
+
+                    return (
                     <Card key={index} className="bg-card border-border p-4">
                       <Button
                         variant="ghost"
                         onClick={() => toggleValidationStep(valRes.id)}
-                        className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                        className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80 w-full justify-start"
                       >
                         {expandedValidationSteps.has(valRes.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        <span className="font-medium">Validation: {valRes.target} ({valRes.dataType})</span>
+                        <div className="flex items-center gap-2 flex-1">
+                          {getStatusIcon(valRes.status)}
+                          <span className="font-medium">Validation: {valRes.target} ({valRes.dataType})</span>
+                          {valRes.stepType && (
+                            <Badge className={`text-xs ${getStepTypeColor(valRes.stepType)}`}>
+                              {valRes.stepType.toUpperCase()}
+                            </Badge>
+                          )}
+                          <Badge variant={valRes.status === 'success' ? 'default' : 'destructive'} className="text-xs">
+                            {valRes.status.toUpperCase()}
+                          </Badge>
+                          {valRes.stepName && (
+                            <span className="text-xs text-muted-foreground ml-auto">
+                              Step: {valRes.stepName}
+                            </span>
+                          )}
+                        </div>
                       </Button>
                       {expandedValidationSteps.has(valRes.id) && (
                         <div className="space-y-2 mt-2">
@@ -427,7 +536,8 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                         </div>
                       )}
                     </Card>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

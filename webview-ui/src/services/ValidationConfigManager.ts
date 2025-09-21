@@ -111,8 +111,8 @@ export class ValidationConfigManager {
 
         // Create detailed error message if validation fails
         const errorMessage = isValid ? undefined : this.createDetailedErrorMessage(
-            rule, 
-            actualValue, 
+            rule,
+            actualValue,
             rule.expectedValue
         );
 
@@ -135,10 +135,10 @@ export class ValidationConfigManager {
         const actualStr = this.formatValueForDisplay(actualValue);
         const expectedStr = this.formatValueForDisplay(expectedValue);
         const operatorText = this.getOperatorText(rule.operator);
-        
-        const baseMessage = rule.errorMessage || 
+
+        const baseMessage = rule.errorMessage ||
             `Validation failed: ${rule.target} ${operatorText} ${expectedStr}`;
-        
+
         return `${baseMessage} (actual: ${actualStr}, expected: ${expectedStr})`;
     }
 
@@ -244,7 +244,7 @@ export class ValidationConfigManager {
     private compareValues(actual: unknown, expected: unknown, operator: ValidationRule['operator']): boolean {
         // Convert expected value to proper type based on actual value type
         const convertedExpected = this.convertExpectedValue(expected, actual);
-        
+
         switch (operator) {
             case 'equals':
                 return this.strictEquals(actual, convertedExpected);
@@ -278,25 +278,25 @@ export class ValidationConfigManager {
         }
 
         const expectedStr = String(expected);
-        
+
         // If actual is a number, try to convert expected to number
         if (typeof actual === 'number') {
             const num = Number(expectedStr);
             return isNaN(num) ? expected : num;
         }
-        
+
         // If actual is a boolean, try to convert expected to boolean
         if (typeof actual === 'boolean') {
             if (expectedStr.toLowerCase() === 'true') return true;
             if (expectedStr.toLowerCase() === 'false') return false;
             return expected;
         }
-        
+
         // If actual is a string, ensure expected is also a string
         if (typeof actual === 'string') {
             return expectedStr;
         }
-        
+
         // For arrays and objects, try to parse JSON if expected is a string
         if (Array.isArray(actual) || (typeof actual === 'object' && actual !== null)) {
             if (typeof expected === 'string') {
@@ -307,7 +307,7 @@ export class ValidationConfigManager {
                 }
             }
         }
-        
+
         return expected;
     }
 
@@ -319,12 +319,12 @@ export class ValidationConfigManager {
         if (actual === null || actual === undefined || expected === null || expected === undefined) {
             return actual === expected;
         }
-        
+
         // Direct comparison first
         if (actual === expected) {
             return true;
         }
-        
+
         // Type coercion for numbers
         if (typeof actual === 'number' || typeof expected === 'number') {
             const actualNum = Number(actual);
@@ -333,12 +333,12 @@ export class ValidationConfigManager {
                 return actualNum === expectedNum;
             }
         }
-        
+
         // Type coercion for booleans
         if (typeof actual === 'boolean' || typeof expected === 'boolean') {
             return Boolean(actual) === Boolean(expected);
         }
-        
+
         // String comparison
         return String(actual) === String(expected);
     }
@@ -352,11 +352,11 @@ export class ValidationConfigManager {
 
         console.log("The expected Value after type conversion to number", actualNum);
         console.log("The expected Value after type conversion to number", expectedNum);
-        
+
         if (isNaN(actualNum) || isNaN(expectedNum)) {
             return false;
         }
-        
+
         return compareFn(actualNum, expectedNum);
     }
 
@@ -367,23 +367,23 @@ export class ValidationConfigManager {
         if (typeof actual === 'string' && typeof expected === 'string') {
             return actual.includes(expected);
         }
-        
+
         if (typeof actual === 'string') {
             return actual.includes(String(expected));
         }
-        
+
         if (Array.isArray(actual)) {
             return actual.some(item => this.strictEquals(item, expected));
         }
-        
+
         if (typeof actual === 'object' && actual !== null) {
             const actualObj = actual as Record<string, unknown>;
             const expectedStr = String(expected);
-            return Object.values(actualObj).some(value => 
+            return Object.values(actualObj).some(value =>
                 String(value).includes(expectedStr)
             );
         }
-        
+
         return false;
     }
 
@@ -393,7 +393,7 @@ export class ValidationConfigManager {
     private regexComparison(actual: unknown, expected: unknown): boolean {
         const actualStr = String(actual);
         const expectedStr = String(expected);
-        
+
         try {
             const regex = new RegExp(expectedStr);
             return regex.test(actualStr);
