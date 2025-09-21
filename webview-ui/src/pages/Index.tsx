@@ -84,24 +84,36 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
 
         // Check if query contains dynamic variables (${...}$ pattern)
         const dynamicPattern = /\$\{([a-zA-Z0-9_]+)\}\$/g;
-        let karateQuery: string;
-
+        
+        // NEW FIX: Use triple-quoted strings for all queries to handle single quotes properly
         if (!dynamicPattern.test(query)) {
-          // No dynamic variables present
-          // Escape single quotes inside the query using \'
-          const escapedQuery = query.replace(/'/g, "\\'");
-          karateQuery = escapedQuery;
-          gherkin += `  * def query = '${karateQuery}'\n`;
+          // No dynamic variables present - use triple quotes to handle single quotes
+          gherkin += `  * def query =\n`;
+          gherkin += `    """\n${query}\n"""\n`;
           gherkin += `  * print 'query (no substitution needed): ' + query\n`;
         } else {
-          // Dynamic variables substitution logic
-          karateQuery = query.replace(dynamicPattern, (_match, varName) => {
+          // Dynamic variables present - need to construct query with proper escaping
+          // First, extract all string literals (content within single quotes)
+          const stringLiterals: Record<string, string> = {};
+          let literalCounter = 0;
+          let tempQuery = query;
+          
+          // Extract string literals and replace with placeholders
+          tempQuery = tempQuery.replace(/'([^']*)'/g, (match, content) => {
+            const placeholder = `__STRING_LITERAL_${literalCounter}__`;
+            stringLiterals[placeholder] = content;
+            literalCounter++;
+            return placeholder;
+          });
+          
+          // Now handle dynamic variable substitution on the temp query
+          const processedQuery = tempQuery.replace(dynamicPattern, (_match, varName) => {
             if (extractedVars[varName]) {
               const varType = extractedVars[varName].type || 'string';
               if (varType === 'string') {
-                return `' + "'" + ${varName} + "'" + '`;
+                return `" + "'" + ${varName} + "'" + "`;
               } else {
-                return `' + ${varName} + '`;
+                return `" + ${varName} + "`;
               }
             } else {
               missingVar = true;
@@ -109,7 +121,15 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
               return `MISSING_VAR_${varName}`;
             }
           });
-          gherkin += `  * def query = '${karateQuery}'\n`;
+          
+          // Restore string literals
+          let finalQuery = processedQuery;
+          Object.entries(stringLiterals).forEach(([placeholder, content]) => {
+            finalQuery = finalQuery.replace(placeholder, `'${content}'`);
+          });
+          
+          // Use triple-quoted string with proper concatenation
+          gherkin += `  * def query = "${finalQuery}"\n`;
           gherkin += `  * print 'query constructed: ' + query\n`;
         }
 
