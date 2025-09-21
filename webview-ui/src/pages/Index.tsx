@@ -230,7 +230,39 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
 
 
         gherkin += `  * def validationExpected = ${expectedValue}\n`;
-        gherkin += `  * def validationResult = validationActual == validationExpected ? 'success' : 'failure'\n`;
+        
+        // Generate comparison based on operator
+        let comparisonLogic = '';
+        switch (validation.operator || 'equals') {
+          case 'equals':
+            comparisonLogic = 'validationActual == validationExpected';
+            break;
+          case 'not-equals':
+            comparisonLogic = 'validationActual != validationExpected';
+            break;
+          case 'greater-than':
+            comparisonLogic = 'validationActual > validationExpected';
+            break;
+          case 'less-than':
+            comparisonLogic = 'validationActual < validationExpected';
+            break;
+          case 'contains':
+            if (validation.dataType === 'string') {
+              comparisonLogic = 'validationActual.contains(validationExpected)';
+            } else if (validation.dataType === 'array') {
+              comparisonLogic = 'validationActual.contains(validationExpected)';
+            } else {
+              comparisonLogic = 'validationActual.toString().contains(validationExpected.toString())';
+            }
+            break;
+          case 'matches':
+            comparisonLogic = 'java.util.regex.Pattern.matches(validationExpected, validationActual.toString())';
+            break;
+          default:
+            comparisonLogic = 'validationActual == validationExpected';
+        }
+        
+        gherkin += `  * def validationResult = (${comparisonLogic}) ? 'success' : 'failure'\n`;
 
         // Add custom error message if provided
         const customMessage = validation.customErrorMessage ?
@@ -592,7 +624,7 @@ const Index = () => {
           console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
           runStartTime.current = null;
         }
-        const payload = message.payload as any;
+        const payload = message.payload as unknown;
         const { parsedResults, validationResults, ...karateSummary } = payload;
         setTestResults(karateSummary);
         setStepResults(parsedResults || []);

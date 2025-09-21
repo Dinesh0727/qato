@@ -62,6 +62,7 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
       type: stepType,
       target: newValidation.target,
       expectedValue: newValidation.expectedValue,
+      operator: newValidation.operator, // Include the operator selected by user
       dataType: inferDataType(newValidation.expectedValue),
       stepId,
       customErrorMessage: newValidation.errorMessage || undefined,
@@ -88,7 +89,7 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
       name: validation.target,
       type: 'value-comparison',
       target: validation.target,
-      operator: 'equals',
+      operator: validation.operator || 'equals', // Use the existing operator
       expectedValue: validation.expectedValue,
       errorMessage: validation.customErrorMessage || '',
       severity: 'error'
@@ -101,6 +102,7 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
     const updates: Partial<ValidationConfig> = {
       target: newValidation.target,
       expectedValue: newValidation.expectedValue,
+      operator: newValidation.operator, // Include the operator in updates
       dataType: inferDataType(newValidation.expectedValue),
       customErrorMessage: newValidation.errorMessage || undefined,
     };
@@ -134,16 +136,31 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
   };
 
   const inferDataType = (value: string): 'string' | 'number' | 'boolean' | 'array' | 'object' => {
-    if (value === 'true' || value === 'false') return 'boolean';
-    if (!isNaN(Number(value))) return 'number';
-    if (value.startsWith('[') || value.startsWith('{')) {
+    if (!value || value.trim() === '') return 'string';
+    
+    const trimmedValue = value.trim();
+    
+    // Check for boolean
+    if (trimmedValue.toLowerCase() === 'true' || trimmedValue.toLowerCase() === 'false') {
+      return 'boolean';
+    }
+    
+    // Check for number (including decimals, negatives, and scientific notation)
+    if (/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(trimmedValue)) {
+      return 'number';
+    }
+    
+    // Check for JSON array or object
+    if ((trimmedValue.startsWith('[') && trimmedValue.endsWith(']')) || 
+        (trimmedValue.startsWith('{') && trimmedValue.endsWith('}'))) {
       try {
-        JSON.parse(value);
-        return value.startsWith('[') ? 'array' : 'object';
+        JSON.parse(trimmedValue);
+        return trimmedValue.startsWith('[') ? 'array' : 'object';
       } catch {
         return 'string';
       }
     }
+    
     return 'string';
   };
 
@@ -243,6 +260,7 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
                 </div>
                 <div className="text-sm space-y-1">
                   <div><strong>Target:</strong> {validation.target}</div>
+                  <div><strong>Operator:</strong> {validation.operator || 'equals'}</div>
                   <div><strong>Expected:</strong> {validation.expectedValue}</div>
                   {validation.customErrorMessage && (
                     <div><strong>Custom Message:</strong> {validation.customErrorMessage}</div>
@@ -309,37 +327,51 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
                 </div>
                 
                 <div className="space-y-2">
-                  <label className="text-xs font-medium">Operator</label>
-                  <Select
-                    value={newValidation.operator}
-                    onValueChange={(value: ValidationRule['operator']) => 
-                      setNewValidation({ ...newValidation, operator: value })
-                    }
-                  >
-                    <SelectTrigger className="text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="equals">Equals</SelectItem>
-                      <SelectItem value="not-equals">Not Equals</SelectItem>
-                      <SelectItem value="greater-than">Greater Than</SelectItem>
-                      <SelectItem value="less-than">Less Than</SelectItem>
-                      <SelectItem value="contains">Contains</SelectItem>
-                      <SelectItem value="matches">Matches (Regex)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <label className="text-xs font-medium">Expected Value</label>
+                  <Input
+                    value={newValidation.expectedValue}
+                    onChange={(e) => setNewValidation({ ...newValidation, expectedValue: e.target.value })}
+                    placeholder="Expected value"
+                    className="text-sm"
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-xs font-medium">Expected Value</label>
-                <Input
-                  value={newValidation.expectedValue}
-                  onChange={(e) => setNewValidation({ ...newValidation, expectedValue: e.target.value })}
-                  placeholder="Expected value"
-                  className="text-sm"
-                />
+                <label className="text-xs font-medium">
+                  Operator 
+                  <span className="text-muted-foreground ml-1">
+                    (Detected type: {inferDataType(newValidation.expectedValue)})
+                  </span>
+                </label>
+                <Select
+                  value={newValidation.operator}
+                  onValueChange={(value: ValidationRule['operator']) => 
+                    setNewValidation({ ...newValidation, operator: value })
+                  }
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="equals">Equals</SelectItem>
+                    <SelectItem value="not-equals">Not Equals</SelectItem>
+                    {(inferDataType(newValidation.expectedValue) === 'number') && (
+                      <>
+                        <SelectItem value="greater-than">Greater Than</SelectItem>
+                        <SelectItem value="less-than">Less Than</SelectItem>
+                      </>
+                    )}
+                    {(inferDataType(newValidation.expectedValue) === 'string' || 
+                      inferDataType(newValidation.expectedValue) === 'array') && (
+                      <SelectItem value="contains">Contains</SelectItem>
+                    )}
+                    <SelectItem value="matches">Matches (Regex)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
+
 
               <div className="space-y-2">
                 <label className="text-xs font-medium">Error Message (Optional)</label>
@@ -351,6 +383,29 @@ export const ValidationEditor: React.FC<ValidationEditorProps> = ({
                   rows={2}
                 />
               </div>
+
+              {/* Validation Hints */}
+              {newValidation.expectedValue && (
+                <div className="p-3 bg-muted/50 rounded-lg border">
+                  <h5 className="text-xs font-medium mb-2">Validation Hints:</h5>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>• Detected type: <strong>{inferDataType(newValidation.expectedValue)}</strong></div>
+                    {inferDataType(newValidation.expectedValue) === 'number' && (
+                      <div>• For numbers: Use greater-than/less-than for range checks</div>
+                    )}
+                    {inferDataType(newValidation.expectedValue) === 'string' && (
+                      <div>• For strings: Use contains for partial matches, matches for regex patterns</div>
+                    )}
+                    {inferDataType(newValidation.expectedValue) === 'boolean' && (
+                      <div>• For booleans: Use true/false (case insensitive)</div>
+                    )}
+                    {(inferDataType(newValidation.expectedValue) === 'array' || 
+                      inferDataType(newValidation.expectedValue) === 'object') && (
+                      <div>• For JSON: Ensure valid JSON format for exact matching</div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button

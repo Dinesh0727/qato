@@ -168,6 +168,7 @@ export interface ValidationConfig {
   type: 'api' | 'sql' | 'clickhouse';
   target: string; // JSON path for API, column name for DB
   expectedValue: string;
+  operator: 'equals' | 'not-equals' | 'greater-than' | 'less-than' | 'contains' | 'matches'; // Validation operator
   dataType: 'string' | 'number' | 'boolean' | 'array' | 'object';
   stepId: string; // Links to the step being validated
   customErrorMessage?: string; // Custom error message for validation failures
