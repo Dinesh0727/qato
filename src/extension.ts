@@ -593,7 +593,7 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
 
         panel.webview.postMessage({
             command: 'testResult',
-            payload: { ...testResults, parsedResults, validationResults } // Send raw JSON strings to the webview
+            payload: { ...testResults, parsedResults, validationResults, testCaseId: testContext?.testCaseId } // Send raw JSON strings to the webview
         });
 
         if (code !== 0) {

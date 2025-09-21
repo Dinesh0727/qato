@@ -4,6 +4,7 @@ import { Editor } from '@/components/Editor';
 import { Header } from '@/components/Header';
 import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig, WorkspaceTree, WorkspaceFolder, WorkspaceCollection, WorkspaceTestCase, GlobalConfig, FolderConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
+import { TestResultsManager } from '@/services/TestResultsManager';
 
 // Define the structure of the VS Code API object
 interface VsCodeApi {
@@ -337,13 +338,25 @@ const Index = () => {
 
   const [selectedTestCase, setSelectedTestCase] = useState<TestCase | null>(null);
   const [isNavigatorCollapsed, setIsNavigatorCollapsed] = useState(false);
-  const [executionLogs, setExecutionLogs] = useState<ExecutionLog[]>([]);
-  const [testResults, setTestResults] = useState<Record<string, unknown> | null>(null);
-  const [stepResults, setStepResults] = useState<any[]>([]);
-  const [validationResults, setValidationResults] = useState<any[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
   const runStartTime = useRef<number | null>(null);
+  
+  // Test results manager instance
+  const resultsManager = useRef(new TestResultsManager());
+
+  // Get current results for the selected test case
+  const getCurrentResults = useCallback(() => {
+    if (!selectedTestCase) {
+      return {
+        testResults: null,
+        stepResults: [],
+        validationResults: [],
+        executionLogs: []
+      };
+    }
+    return resultsManager.current.getResults(selectedTestCase.id);
+  }, [selectedTestCase]);
 
   // Convert workspace tree to folder structure for UI compatibility
   const convertWorkspaceToFolders = useCallback((workspaceTree: WorkspaceTree): Folder[] => {
@@ -484,6 +497,9 @@ const Index = () => {
       setSelectedTestCase(null);
     }
     
+    // Remove results for this test case
+    resultsManager.current.removeResults(testCase.id);
+    
     // Send delete command to extension
     vscode.postMessage({
       command: 'deleteTestCase',
@@ -610,7 +626,7 @@ const Index = () => {
       }
       
       case 'inputBoxResult': {
-        const { value, context } = message.payload as { value?: string; context: unknown };
+        const { value, context } = message.payload as { value?: string; context: any };
         if (!value) return;
 
         switch (context.type) {
@@ -644,11 +660,21 @@ const Index = () => {
           console.log(`[QATO] Total execution time (button click to response): ${duration} ms`);
           runStartTime.current = null;
         }
-        const payload = message.payload as unknown;
-        const { parsedResults, validationResults, ...karateSummary } = payload;
-        setTestResults(karateSummary);
-        setStepResults(parsedResults || []);
-        setValidationResults(validationResults || []);
+        const payload = message.payload as any;
+        const { parsedResults, validationResults, testCaseId, ...karateSummary } = payload;
+        
+        // Store results in the results manager for the specific test case
+        const targetTestCaseId = testCaseId || selectedTestCase?.id;
+        if (targetTestCaseId) {
+          resultsManager.current.setResults(
+            targetTestCaseId,
+            karateSummary,
+            parsedResults || [],
+            validationResults || [],
+            [] // executionLogs - could be added later if needed
+          );
+        }
+        
         console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
         console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
         console.log('[DEBUG:Index.tsx] Processed validation results:', validationResults);
@@ -694,10 +720,9 @@ const Index = () => {
     if (!testCase || isExecuting) return;
 
     setIsExecuting(true);
-    setTestResults(null);
-    setStepResults([]);
-    setValidationResults([]);
-    setExecutionLogs([]);
+    
+    // Clear results for this specific test case
+    resultsManager.current.clearResults(testCase.id);
 
     // Record start time
     runStartTime.current = Date.now();
@@ -715,6 +740,7 @@ const Index = () => {
           featureFileContent: gherkinContent,
           testContext: {
             testCaseName: testCase.name,
+            testCaseId: testCase.id, // Include test case ID for results association
             workspaceRoot: workspaceTree?.rootPath || '',
             globalConfig: workspaceTree?.globalConfig,
             folderConfig: null // Will be determined by the backend
@@ -847,10 +873,10 @@ const Index = () => {
               onRunTestCase={handleRunTestCase}
               onDebugConfig={handleDebugConfig}
               isExecuting={isExecuting}
-              executionLogs={executionLogs}
-              testResults={testResults}
-              stepResults={stepResults}
-              validationResults={validationResults}
+              executionLogs={getCurrentResults().executionLogs}
+              testResults={getCurrentResults().testResults}
+              stepResults={getCurrentResults().stepResults}
+              validationResults={getCurrentResults().validationResults}
             />
         </div>
       </div>
