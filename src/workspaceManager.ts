@@ -502,12 +502,10 @@ export class WorkspaceManager {
   async readStepTemplates(): Promise<FileSystemResult<any[]>> {
     try {
       const fileUri = this.getTemplatesFileUri();
-      console.log("File URI used to fetch templates: ", fileUri);
       if (!fileUri) return { success: false, error: 'No workspace root set' };
       const fileData = await vscode.workspace.fs.readFile(fileUri);
       const parsed = JSON.parse(fileData.toString());
       const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed.templates) ? parsed.templates : [];
-      console.log("templates parsed and retrieved: ", parsed);
       return { success: true, data: list };
     } catch (error: any) {
       return { success: false, error: `Failed to read templates: ${error.message}` };
