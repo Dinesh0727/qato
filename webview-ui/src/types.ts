@@ -212,6 +212,21 @@ export interface StepUIConfig {
   color: string;
 }
 
+// Step Template Types
+export interface StepTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  type: 'api' | 'sql' | 'redis' | 'clickhouse';
+  config: SqlStepConfig | RedisStepConfig | ApiStepConfig | ClickhouseStepConfig;
+  validations?: ValidationConfig[];
+  delayMs?: number;
+  createdAt: Date;
+  updatedAt: Date;
+  tags?: string[];
+  usageCount?: number;
+}
+
 export interface FlowControlDecision {
   shouldContinue: boolean;
   reason: string;

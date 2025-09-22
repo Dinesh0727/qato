@@ -5,6 +5,7 @@ import { Header } from '@/components/Header';
 import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, Folder, Collection, ValidationConfig, WorkspaceTree, WorkspaceFolder, WorkspaceCollection, WorkspaceTestCase, GlobalConfig, FolderConfig } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { TestResultsManager } from '@/services/TestResultsManager';
+import { StepTemplateManager } from '@/services/StepTemplateManager';
 
 // Define the structure of the VS Code API object
 interface VsCodeApi {
@@ -344,6 +345,7 @@ const Index = () => {
   
   // Test results manager instance
   const resultsManager = useRef(new TestResultsManager());
+  const templateManager = useRef(new StepTemplateManager());
 
   // Get current results for the selected test case
   const getCurrentResults = useCallback(() => {
@@ -696,6 +698,42 @@ const Index = () => {
         });
         break;
       }
+
+      case 'templatesLoaded': {
+        const { templates } = message.payload as { templates: any[] };
+        templateManager.current.loadTemplates(templates as any);
+        break;
+      }
+
+      case 'templateSaved': {
+        const { template } = message.payload as { template: any };
+        // Merge the newly saved template into the manager
+        const existing = templateManager.current.getTemplate(template.id);
+        if (!existing) {
+          templateManager.current.loadTemplates([
+            ...templateManager.current.getAllTemplates(),
+            { ...template, createdAt: new Date(template.createdAt), updatedAt: new Date(template.updatedAt) }
+          ] as any);
+        }
+        break;
+      }
+
+      case 'templateUpdated': {
+        const { templateId, template } = message.payload as { templateId: string; template: any };
+        templateManager.current.updateTemplate(templateId, template);
+        break;
+      }
+
+      case 'templateDeleted': {
+        const { templateId } = message.payload as { templateId: string };
+        templateManager.current.deleteTemplate(templateId);
+        break;
+      }
+
+      case 'templatesCleared': {
+        // All templates cleared successfully
+        break;
+      }
     }
   }, [toast, addFolder, addCollection, addTestCase, convertWorkspaceToFolders]);
 
@@ -877,6 +915,7 @@ const Index = () => {
               testResults={getCurrentResults().testResults}
               stepResults={getCurrentResults().stepResults}
               validationResults={getCurrentResults().validationResults}
+            templateManager={templateManager.current}
             />
         </div>
       </div>
