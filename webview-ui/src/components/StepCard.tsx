@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3 } from 'lucide-react';
+import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,9 +18,10 @@ interface StepCardProps {
   onDelete: () => void;
   children?: React.ReactNode;
   defaultCollapsed?: boolean; // New prop to control default state
+  onSaveAsTemplate?: (step: TestStep) => void; // New prop for saving as template
 }
 
-export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true }: StepCardProps) => {
+export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true, onSaveAsTemplate }: StepCardProps) => {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   // Move useRef to top level to avoid conditional hook call
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -351,32 +352,47 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
           {index + 1}
         </div>
         
-        {isCollapsed && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 rounded-lg transition-all duration-200"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsCollapsed(false);
-            }}
-            title="Edit step"
-          >
-            <Edit3 className="h-4 w-4" />
-          </Button>
-        )}
-        
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 p-1 rounded-lg transition-all duration-200"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+         {isCollapsed && (
+           <Button
+             variant="ghost"
+             size="sm"
+             className="text-muted-foreground hover:text-foreground hover:bg-accent p-1 rounded-lg transition-all duration-200"
+             onClick={(e) => {
+               e.stopPropagation();
+               setIsCollapsed(false);
+             }}
+             title="Edit step"
+           >
+             <Edit3 className="h-4 w-4" />
+           </Button>
+         )}
+
+         {onSaveAsTemplate && (
+           <Button
+             variant="ghost"
+             size="sm"
+             onClick={(e) => {
+               e.stopPropagation();
+               onSaveAsTemplate(step);
+             }}
+             className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/20 p-1 rounded-lg transition-all duration-200"
+             title="Save as template"
+           >
+             <Save className="h-4 w-4" />
+           </Button>
+         )}
+         
+         <Button
+           variant="ghost"
+           size="sm"
+           onClick={(e) => {
+             e.stopPropagation();
+             onDelete();
+           }}
+           className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20 p-1 rounded-lg transition-all duration-200"
+         >
+           <Trash2 className="h-4 w-4" />
+         </Button>
       </div>
 
       {/* Expandable Content */}

@@ -43,6 +43,15 @@ export class WorkspaceManager {
         await vscode.workspace.fs.createDirectory(qatoDir);
       }
 
+      // Ensure templates file exists
+      const templatesFile = vscode.Uri.joinPath(qatoDir, 'templates.json');
+      try {
+        await vscode.workspace.fs.stat(templatesFile);
+      } catch {
+        const emptyTemplates = JSON.stringify({ templates: [] }, null, 2);
+        await vscode.workspace.fs.writeFile(templatesFile, Buffer.from(emptyTemplates, 'utf8'));
+      }
+
       // Create global-config.json if it doesn't exist
       const globalConfigPath = vscode.Uri.joinPath(rootUri, 'global-config.json');
       try {
@@ -477,5 +486,46 @@ export class WorkspaceManager {
    */
   private generateId(name: string): string {
     return name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+  }
+
+  /**
+   * Get URI for the templates file under .qato
+   */
+  private getTemplatesFileUri(): vscode.Uri | null {
+    if (!this.rootUri) return null;
+    return vscode.Uri.joinPath(this.rootUri, '.qato', 'templates.json');
+  }
+
+  /**
+   * Read all step templates from the workspace templates file
+   */
+  async readStepTemplates(): Promise<FileSystemResult<any[]>> {
+    try {
+      const fileUri = this.getTemplatesFileUri();
+      console.log("File URI used to fetch templates: ", fileUri);
+      if (!fileUri) return { success: false, error: 'No workspace root set' };
+      const fileData = await vscode.workspace.fs.readFile(fileUri);
+      const parsed = JSON.parse(fileData.toString());
+      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed.templates) ? parsed.templates : [];
+      console.log("templates parsed and retrieved: ", parsed);
+      return { success: true, data: list };
+    } catch (error: any) {
+      return { success: false, error: `Failed to read templates: ${error.message}` };
+    }
+  }
+
+  /**
+   * Write all step templates to the workspace templates file
+   */
+  async writeStepTemplates(templates: any[]): Promise<FileSystemResult<void>> {
+    try {
+      const fileUri = this.getTemplatesFileUri();
+      if (!fileUri) return { success: false, error: 'No workspace root set' };
+      const content = JSON.stringify({ templates }, null, 2);
+      await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content, 'utf8'));
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: `Failed to write templates: ${error.message}` };
+    }
   }
 }

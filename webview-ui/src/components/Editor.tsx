@@ -1,12 +1,16 @@
-import { useState } from 'react';
-import { Play, Plus, Database, Zap, Globe, Table } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Play, Plus, Database, Zap, Globe, Table, BookOpen, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { TestCase, TestStep, ValidationConfig, FlowControlConfig, ExecutionLog, ValidationResult } from '@/types';
+import { TestCase, TestStep, ValidationConfig, FlowControlConfig, ExecutionLog, ValidationResult, StepTemplate } from '@/types';
 import { StepCard } from '@/components/StepCard';
 import { ValidationEditor } from '@/components/ValidationEditor';
 import { FlowControlSettings } from '@/components/FlowControlSettings';
 import { Results } from '@/components/Results';
+import { StepTemplateModal } from '@/components/StepTemplateModal';
+import { SaveTemplateModal } from '@/components/SaveTemplateModal';
+import { TemplateManagementModal } from '@/components/TemplateManagementModal';
+import { StepTemplateManager } from '@/services/StepTemplateManager';
 import { useToast } from '@/hooks/use-toast';
 
 interface EditorProps {
@@ -19,6 +23,7 @@ interface EditorProps {
   testResults: { [key: string]: unknown } | null;
   stepResults: { stepName: string; type: string; result: unknown; executionTime?: number }[];
   validationResults: ValidationResult[];
+  templateManager: StepTemplateManager;
 }
 
 export const Editor = ({ 
@@ -30,10 +35,18 @@ export const Editor = ({
   executionLogs, 
   testResults, 
   stepResults, 
-  validationResults 
+  validationResults,
+  templateManager
 }: EditorProps) => {
   const [showAddStep, setShowAddStep] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [showTemplateManagement, setShowTemplateManagement] = useState(false);
+  const [selectedStepForTemplate, setSelectedStepForTemplate] = useState<TestStep | null>(null);
+  const [selectedStepType, setSelectedStepType] = useState<'api' | 'sql' | 'redis' | 'clickhouse' | undefined>(undefined);
   const { toast } = useToast();
+  
+  // Template manager is provided from parent to keep a single shared instance
 
   const handleAddStep = (type: 'sql' | 'redis' | 'api' | 'clickhouse') => {
     if (!testCase) return;
@@ -172,6 +185,49 @@ export const Editor = ({
     onUpdateTestCase(updatedTestCase);
   };
 
+  const handleSaveAsTemplate = (step: TestStep) => {
+    setSelectedStepForTemplate(step);
+    setShowSaveTemplateModal(true);
+  };
+
+  const handleTemplateSaved = (template: StepTemplate) => {
+    toast({
+      title: "Template Saved",
+      description: `"${template.name}" has been saved as a template.`,
+    });
+  };
+
+  const handleSelectTemplate = (template: StepTemplate) => {
+    if (!testCase) return;
+
+    const newStep = templateManager.createStepFromTemplate(template, testCase.steps.length);
+    
+    // Update validation step IDs to match the new step
+    if (newStep.validations) {
+      newStep.validations = newStep.validations.map(validation => ({
+        ...validation,
+        stepId: newStep.id
+      }));
+    }
+
+    const updatedTestCase = {
+      ...testCase,
+      steps: [...testCase.steps, newStep]
+    };
+
+    onUpdateTestCase(updatedTestCase);
+    
+    toast({
+      title: "Template Applied",
+      description: `"${template.name}" has been added to your test case.`,
+    });
+  };
+
+  const handleShowTemplates = (type?: 'api' | 'sql' | 'redis' | 'clickhouse') => {
+    setSelectedStepType(type);
+    setShowTemplateModal(true);
+  };
+
   const getDefaultFlowControlConfig = (): FlowControlConfig => {
     return testCase?.flowControlConfig || {
       id: `flow-control-${Date.now()}`,
@@ -240,6 +296,7 @@ export const Editor = ({
               index={index}
               onUpdate={(updates) => handleUpdateStep(step.id, updates)}
               onDelete={() => handleDeleteStep(step.id)}
+              onSaveAsTemplate={handleSaveAsTemplate}
             >
               <ValidationEditor
                 stepId={step.id}
@@ -254,14 +311,34 @@ export const Editor = ({
 
           <div className="relative">
             {!showAddStep ? (
-              <Button
-                variant="outline"
-                onClick={() => setShowAddStep(true)}
-                className="w-full border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors duration-200"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Step
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAddStep(true)}
+                  className="w-full border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors duration-200"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Step
+                </Button>
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleShowTemplates()}
+                    className="w-full border-dashed border-primary/30 text-primary hover:text-primary hover:border-primary/50 transition-colors duration-200"
+                  >
+                    <BookOpen className="h-4 w-4 mr-2" />
+                    Use Template
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowTemplateManagement(true)}
+                    className="w-full border-dashed border-secondary/30 text-secondary-foreground hover:text-secondary-foreground hover:border-secondary/50 transition-colors duration-200"
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Manage Templates
+                  </Button>
+                </div>
+              </div>
             ) : (
               <Card className="p-8 rounded-2xl shadow-2xl border-2 border-primary/20 bg-gradient-to-br from-background via-primary/5 to-background animate-fade-in">
                 <h3 className="text-lg font-bold mb-2 text-primary">Add a New Step</h3>
@@ -319,6 +396,29 @@ export const Editor = ({
           </div>
         </div>
       </div>
+
+      {/* Template Modals */}
+      <StepTemplateModal
+        isOpen={showTemplateModal}
+        onClose={() => setShowTemplateModal(false)}
+        onSelectTemplate={handleSelectTemplate}
+        stepType={selectedStepType}
+        templateManager={templateManager}
+      />
+
+      <SaveTemplateModal
+        isOpen={showSaveTemplateModal}
+        onClose={() => setShowSaveTemplateModal(false)}
+        step={selectedStepForTemplate}
+        templateManager={templateManager}
+        onTemplateSaved={handleTemplateSaved}
+      />
+
+      <TemplateManagementModal
+        isOpen={showTemplateManagement}
+        onClose={() => setShowTemplateManagement(false)}
+        templateManager={templateManager}
+      />
     </div>
   );
 };

@@ -352,6 +352,113 @@ async function handleWebviewMessage(message: any, panel: vscode.WebviewPanel, co
             await initializeWorkspaceForPanel(panel);
             break;
         }
+
+        case 'saveStepTemplate': {
+            const { template } = message.payload;
+            try {
+                const listResult = await workspaceManager.readStepTemplates();
+                const templates = listResult.success && listResult.data ? listResult.data : [];
+                const updatedTemplates = [...templates, template];
+                const writeResult = await workspaceManager.writeStepTemplates(updatedTemplates);
+                if (!writeResult.success) {
+                    throw new Error(writeResult.error || 'Failed to write templates');
+                }
+                panel.webview.postMessage({
+                    command: 'templateSaved',
+                    payload: { template }
+                });
+            } catch (error) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'Failed to save template' }
+                });
+            }
+            break;
+        }
+
+        case 'loadStepTemplates': {
+            try {
+                const listResult = await workspaceManager.readStepTemplates();
+                const templates = listResult.success && listResult.data ? listResult.data : [];
+                panel.webview.postMessage({
+                    command: 'templatesLoaded',
+                    payload: { templates }
+                });
+            } catch (error) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'Failed to load templates' }
+                });
+            }
+            break;
+        }
+
+        case 'updateStepTemplate': {
+            const { templateId, updates } = message.payload;
+            try {
+                const listResult = await workspaceManager.readStepTemplates();
+                const templates = listResult.success && listResult.data ? listResult.data : [];
+                const updatedTemplates = templates.map((template: any) => 
+                    template.id === templateId ? { ...template, ...updates, updatedAt: new Date().toISOString() } : template
+                );
+                const writeResult = await workspaceManager.writeStepTemplates(updatedTemplates);
+                if (!writeResult.success) {
+                    throw new Error(writeResult.error || 'Failed to write templates');
+                }
+                panel.webview.postMessage({
+                    command: 'templateUpdated',
+                    payload: { templateId, template: updatedTemplates.find((t: any) => t.id === templateId) }
+                });
+            } catch (error) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'Failed to update template' }
+                });
+            }
+            break;
+        }
+
+        case 'deleteStepTemplate': {
+            const { templateId } = message.payload;
+            try {
+                const listResult = await workspaceManager.readStepTemplates();
+                const templates = listResult.success && listResult.data ? listResult.data : [];
+                const updatedTemplates = templates.filter((template: any) => template.id !== templateId);
+                const writeResult = await workspaceManager.writeStepTemplates(updatedTemplates);
+                if (!writeResult.success) {
+                    throw new Error(writeResult.error || 'Failed to write templates');
+                }
+                panel.webview.postMessage({
+                    command: 'templateDeleted',
+                    payload: { templateId }
+                });
+            } catch (error) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'Failed to delete template' }
+                });
+            }
+            break;
+        }
+
+        case 'clearAllTemplates': {
+            try {
+                const writeResult = await workspaceManager.writeStepTemplates([]);
+                if (!writeResult.success) {
+                    throw new Error(writeResult.error || 'Failed to write templates');
+                }
+                panel.webview.postMessage({
+                    command: 'templatesCleared',
+                    payload: {}
+                });
+            } catch (error) {
+                panel.webview.postMessage({
+                    command: 'workspaceError',
+                    payload: { error: 'Failed to clear templates' }
+                });
+            }
+            break;
+        }
     }
 }
 
