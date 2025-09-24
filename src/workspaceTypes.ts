@@ -9,6 +9,7 @@ export interface TestCase {
   createdAt: Date;
   updatedAt: Date;
   flowControlConfig?: FlowControlConfig;
+  tags?: string[];
 }
 
 export interface TestStep {
