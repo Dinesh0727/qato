@@ -1,5 +1,8 @@
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GlobalSettingsDialog } from '@/components/GlobalSettingsDialog';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Settings } from 'lucide-react';
 
 interface DatabaseConfig {
   id: string;
@@ -36,13 +39,17 @@ interface HeaderProps {
   subtitle?: string;
   globalConfig?: GlobalConfig;
   onUpdateGlobalConfig?: (config: GlobalConfig) => void;
+  onOpenTemplateManagement?: () => void;
+  templateCount?: number;
 }
 
 export const Header = ({ 
   title = 'QATO Visual Builder', 
   subtitle,
   globalConfig,
-  onUpdateGlobalConfig
+  onUpdateGlobalConfig,
+  onOpenTemplateManagement,
+  templateCount
 }: HeaderProps) => {
   const defaultGlobalConfig: GlobalConfig = {
     version: '1.0.0',
@@ -67,6 +74,19 @@ export const Header = ({
       </div>
       
       <div className="flex items-center gap-2">
+        {typeof onOpenTemplateManagement === 'function' && (
+          <Button
+            variant="outline"
+            className="flex items-center gap-2"
+            onClick={onOpenTemplateManagement}
+          >
+            <Settings className="h-4 w-4" />
+            Manage Templates
+            {typeof templateCount === 'number' && (
+              <Badge variant="secondary" className="ml-1">{templateCount}</Badge>
+            )}
+          </Button>
+        )}
         {globalConfig && onUpdateGlobalConfig && (
           <GlobalSettingsDialog
             globalConfig={globalConfig}

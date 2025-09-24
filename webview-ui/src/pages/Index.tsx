@@ -6,6 +6,7 @@ import { TestCase, ExecutionLog, SqlStepConfig, RedisStepConfig, ApiStepConfig, 
 import { useToast } from '@/hooks/use-toast';
 import { TestResultsManager } from '@/services/TestResultsManager';
 import { StepTemplateManager } from '@/services/StepTemplateManager';
+import { TemplateManagementModal } from '@/components/TemplateManagementModal';
 
 // Define the structure of the VS Code API object
 interface VsCodeApi {
@@ -346,6 +347,7 @@ const Index = () => {
   // Test results manager instance
   const resultsManager = useRef(new TestResultsManager());
   const templateManager = useRef(new StepTemplateManager());
+  const [showTemplateManagement, setShowTemplateManagement] = useState(false);
 
   // Get current results for the selected test case
   const getCurrentResults = useCallback(() => {
@@ -887,6 +889,8 @@ const Index = () => {
       <Header 
         globalConfig={globalConfig}
         onUpdateGlobalConfig={handleUpdateGlobalConfig}
+        onOpenTemplateManagement={() => setShowTemplateManagement(true)}
+        templateCount={templateManager.current.getAllTemplates().length}
       />
 
       <div className="flex-1 flex min-h-0">
@@ -919,6 +923,11 @@ const Index = () => {
             />
         </div>
       </div>
+      <TemplateManagementModal
+        isOpen={showTemplateManagement}
+        onClose={() => setShowTemplateManagement(false)}
+        templateManager={templateManager.current}
+      />
     </div>
   );
 };

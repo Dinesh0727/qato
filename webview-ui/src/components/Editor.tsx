@@ -41,7 +41,6 @@ export const Editor = ({
   const [showAddStep, setShowAddStep] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
-  const [showTemplateManagement, setShowTemplateManagement] = useState(false);
   const [selectedStepForTemplate, setSelectedStepForTemplate] = useState<TestStep | null>(null);
   const [selectedStepType, setSelectedStepType] = useState<'api' | 'sql' | 'redis' | 'clickhouse' | undefined>(undefined);
   const { toast } = useToast();
@@ -329,14 +328,7 @@ export const Editor = ({
                     <BookOpen className="h-4 w-4 mr-2" />
                     Use Template
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowTemplateManagement(true)}
-                    className="w-full border-dashed border-secondary/30 text-secondary-foreground hover:text-secondary-foreground hover:border-secondary/50 transition-colors duration-200"
-                  >
-                    <Settings className="h-4 w-4 mr-2" />
-                    Manage Templates
-                  </Button>
+                  {/* Manage Templates moved to Header */}
                 </div>
               </div>
             ) : (
@@ -414,11 +406,7 @@ export const Editor = ({
         onTemplateSaved={handleTemplateSaved}
       />
 
-      <TemplateManagementModal
-        isOpen={showTemplateManagement}
-        onClose={() => setShowTemplateManagement(false)}
-        templateManager={templateManager}
-      />
+      {/* TemplateManagementModal is now mounted in the root page Header */}
     </div>
   );
 };

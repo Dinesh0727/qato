@@ -145,8 +145,8 @@ export const TemplateManagementModal = ({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-7xl w-[95vw] h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Settings className="h-5 w-5" />
               Template Management
@@ -156,9 +156,9 @@ export const TemplateManagementModal = ({
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0 px-6">
             {/* Search Bar */}
-            <div className="relative mb-4">
+            <div className="relative py-4 flex-shrink-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search templates by name, description, or tags..."
@@ -170,7 +170,7 @@ export const TemplateManagementModal = ({
 
             {/* Tabs */}
             <Tabs value={selectedTab} onValueChange={setSelectedTab} className="flex-1 flex flex-col min-h-0">
-              <TabsList className="grid w-full grid-cols-7">
+              <TabsList className="grid w-full grid-cols-7 flex-shrink-0">
                 <TabsTrigger value="all">All</TabsTrigger>
                 <TabsTrigger value="recent">Recent</TabsTrigger>
                 <TabsTrigger value="popular">Popular</TabsTrigger>
@@ -180,25 +180,25 @@ export const TemplateManagementModal = ({
                 <TabsTrigger value="clickhouse">ClickHouse</TabsTrigger>
               </TabsList>
 
-              <TabsContent value={selectedTab} className="flex-1 mt-4 min-h-0">
-                <ScrollArea className="h-full">
-                  {filteredTemplates.length === 0 ? (
-                    <div className="text-center py-8">
-                      <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                      <h3 className="text-lg font-semibold mb-2">No templates found</h3>
-                      <p className="text-muted-foreground">
-                        {searchQuery ? 'Try adjusting your search terms' : 'Create your first step template to get started'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="grid gap-3">
+              <TabsContent value={selectedTab} className="flex-1 mt-4 min-h-0 overflow-hidden">
+                {filteredTemplates.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center py-8">
+                    <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold mb-2">No templates found</h3>
+                    <p className="text-muted-foreground">
+                      {searchQuery ? 'Try adjusting your search terms' : 'Create your first step template to get started'}
+                    </p>
+                  </div>
+                ) : (
+                  <ScrollArea className="h-full pr-4">
+                    <div className="space-y-3 pb-4">
                       {filteredTemplates.map((template) => (
                         <Card
                           key={template.id}
-                          className="p-4 hover:shadow-md transition-all duration-200"
+                          className="p-4 hover:shadow-md transition-all duration-200 border border-border"
                         >
                           <div className="flex items-start gap-3">
-                            <Badge className={`${getStepColor(template.type)} text-white flex items-center gap-1`}>
+                            <Badge className={`${getStepColor(template.type)} text-white flex items-center gap-1 flex-shrink-0`}>
                               {getStepIcon(template.type)}
                               <span className="uppercase text-xs">{template.type}</span>
                             </Badge>
@@ -207,7 +207,7 @@ export const TemplateManagementModal = ({
                               <div className="flex items-center gap-2 mb-1">
                                 <h4 className="font-semibold text-foreground truncate">{template.name}</h4>
                                 {template.usageCount && template.usageCount > 0 && (
-                                  <Badge variant="outline" className="text-xs">
+                                  <Badge variant="outline" className="text-xs flex-shrink-0">
                                     <Star className="h-3 w-3 mr-1" />
                                     {template.usageCount}
                                   </Badge>
@@ -220,25 +220,27 @@ export const TemplateManagementModal = ({
                                 </p>
                               )}
                               
-                              <div className="text-xs text-muted-foreground font-mono bg-muted/50 rounded p-2 mb-2">
-                                {getStepSummary(template)}
+                              <div className="text-xs text-muted-foreground font-mono bg-muted/50 rounded p-2 mb-2 overflow-hidden">
+                                <div className="truncate" title={getStepSummary(template)}>
+                                  {getStepSummary(template)}
+                                </div>
                               </div>
                               
-                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   <Clock className="h-3 w-3" />
                                   {template.createdAt.toLocaleDateString()}
                                 </div>
                                 
                                 {template.delayMs && template.delayMs > 0 && (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1 flex-shrink-0">
                                     <Clock className="h-3 w-3" />
                                     {template.delayMs}ms delay
                                   </div>
                                 )}
                                 
                                 {template.validations && template.validations.length > 0 && (
-                                  <div className="flex items-center gap-1">
+                                  <div className="flex items-center gap-1 flex-shrink-0">
                                     <Tag className="h-3 w-3" />
                                     {template.validations.length} validation{template.validations.length !== 1 ? 's' : ''}
                                   </div>
@@ -247,16 +249,21 @@ export const TemplateManagementModal = ({
                               
                               {template.tags && template.tags.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-2">
-                                  {template.tags.map((tag, index) => (
+                                  {template.tags.slice(0, 5).map((tag, index) => (
                                     <Badge key={index} variant="secondary" className="text-xs">
                                       {tag}
                                     </Badge>
                                   ))}
+                                  {template.tags.length > 5 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      +{template.tags.length - 5} more
+                                    </Badge>
+                                  )}
                                 </div>
                               )}
                             </div>
 
-                            <div className="flex gap-1">
+                            <div className="flex gap-1 flex-shrink-0">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -279,14 +286,14 @@ export const TemplateManagementModal = ({
                         </Card>
                       ))}
                     </div>
-                  )}
-                </ScrollArea>
+                  </ScrollArea>
+                )}
               </TabsContent>
             </Tabs>
           </div>
 
           {/* Footer */}
-          <div className="flex justify-between items-center pt-4 border-t">
+          <div className="flex justify-between items-center px-6 py-4 border-t flex-shrink-0 bg-background">
             <div className="text-sm text-muted-foreground">
               {stats.total} templates • {stats.byType.sql || 0} SQL • {stats.byType.api || 0} API • {stats.byType.redis || 0} Redis • {stats.byType.clickhouse || 0} ClickHouse
             </div>
