@@ -10,6 +10,7 @@ import { Results } from '@/components/Results';
 import { StepTemplateModal } from '@/components/StepTemplateModal';
 import { SaveTemplateModal } from '@/components/SaveTemplateModal';
 import { TemplateManagementModal } from '@/components/TemplateManagementModal';
+import { TagEditor } from '@/components/TagEditor';
 import { StepTemplateManager } from '@/services/StepTemplateManager';
 import { useToast } from '@/hooks/use-toast';
 
@@ -287,6 +288,18 @@ export const Editor = ({
             config={getDefaultFlowControlConfig()}
             onConfigChange={handleFlowControlChange}
           />
+
+          {/* Test Case Tags */}
+          <Card className="p-4">
+            <TagEditor
+              tags={testCase.tags || []}
+              onChange={(nextTags) => onUpdateTestCase({ ...testCase, tags: nextTags, updatedAt: new Date() })}
+              suggestions={['regression', 'smoke', 'critical', 'e2e', 'api', 'database']}
+              maxTags={8}
+              allowCustomTags={true}
+              placeholder="Add tags to categorize this test case..."
+            />
+          </Card>
 
           {testCase.steps.map((step, index) => (
             <StepCard
