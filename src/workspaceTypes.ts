@@ -10,6 +10,7 @@ export interface TestCase {
   updatedAt: Date;
   flowControlConfig?: FlowControlConfig;
   tags?: string[];
+  lastExecution?: LastExecution;
 }
 
 export interface TestStep {
@@ -227,4 +228,11 @@ export interface FileSystemResult<T = void> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+export interface LastExecution {
+  executedAt: string;
+  testResults: { [key: string]: unknown } | null;
+  stepResults: { stepName: string; type: string; result: unknown; executionTime?: number }[];
+  validationResults: any[];
 }

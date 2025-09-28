@@ -349,6 +349,21 @@ const Index = () => {
   const templateManager = useRef(new StepTemplateManager());
   const [showTemplateManagement, setShowTemplateManagement] = useState(false);
 
+  // Hydrate results from lastExecution when selecting a test case
+  useEffect(() => {
+    if (!selectedTestCase) return;
+    const last = selectedTestCase.lastExecution;
+    if (last) {
+      resultsManager.current.setResults(
+        selectedTestCase.id,
+        last.testResults || null,
+        last.stepResults || [],
+        last.validationResults || [],
+        []
+      );
+    }
+  }, [selectedTestCase]);
+
   // Get current results for the selected test case
   const getCurrentResults = useCallback(() => {
     if (!selectedTestCase) {
@@ -679,6 +694,22 @@ const Index = () => {
           );
         }
         
+        // Persist last execution into the selected test case file
+        if (selectedTestCase && targetTestCaseId === selectedTestCase.id) {
+          const updated: TestCase = {
+            ...selectedTestCase,
+            updatedAt: new Date(),
+            lastExecution: {
+              executedAt: new Date().toISOString(),
+              testResults: karateSummary || null,
+              stepResults: parsedResults || [],
+              validationResults: validationResults || []
+            }
+          };
+          // Save to disk via existing mechanism
+          handleUpdateTestCase(updated);
+        }
+        
         console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
         console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
         console.log('[DEBUG:Index.tsx] Processed validation results:', validationResults);
@@ -737,7 +768,7 @@ const Index = () => {
         break;
       }
     }
-  }, [toast, addFolder, addCollection, addTestCase, convertWorkspaceToFolders]);
+  }, [toast, addFolder, addCollection, addTestCase, convertWorkspaceToFolders, selectedTestCase]);
 
   useEffect(() => {
     window.addEventListener('message', handleMessage);
@@ -756,7 +787,7 @@ const Index = () => {
     }
   }, [isWorkspaceInitialized]);
 
-    const handleRunTestCase = async (testCase: TestCase) => {
+  const handleRunTestCase = async (testCase: TestCase) => {
     if (!testCase || isExecuting) return;
 
     setIsExecuting(true);
@@ -919,10 +950,11 @@ const Index = () => {
               testResults={getCurrentResults().testResults}
               stepResults={getCurrentResults().stepResults}
               validationResults={getCurrentResults().validationResults}
-            templateManager={templateManager.current}
+              templateManager={templateManager.current}
             />
         </div>
       </div>
+
       <TemplateManagementModal
         isOpen={showTemplateManagement}
         onClose={() => setShowTemplateManagement(false)}
