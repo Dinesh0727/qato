@@ -7,6 +7,7 @@ export interface TestCase {
   updatedAt: Date;
   flowControlConfig?: FlowControlConfig;
   tags?: string[];
+  lastExecution?: LastExecution;
 }
 
 export interface TestStep {
@@ -154,6 +155,13 @@ export interface ExecutionLog {
   message: string;
   timestamp: Date;
   stepIndex?: number;
+}
+
+export interface LastExecution {
+  executedAt: string;
+  testResults: { [key: string]: unknown } | null;
+  stepResults: { stepName: string; type: string; result: unknown; executionTime?: number }[];
+  validationResults: ValidationResult[];
 }
 
 export interface ApiResponse {
