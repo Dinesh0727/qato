@@ -132,6 +132,18 @@ async function initializeWorkspaceForPanel(panel: vscode.WebviewPanel) {
             payload: { workspaceTree: updatedTree }
         });
     });
+
+    // Load step templates on bootup after workspace initialization
+    try {
+        const templatesResult = await workspaceManager.readStepTemplates();
+        const templates = templatesResult.success && templatesResult.data ? templatesResult.data : [];
+        panel.webview.postMessage({
+            command: 'templatesLoaded',
+            payload: { templates }
+        });
+    } catch (e) {
+        // Ignore template load errors on boot; UI can request explicitly later
+    }
 }
 
 /**
