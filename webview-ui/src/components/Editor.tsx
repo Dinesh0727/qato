@@ -393,6 +393,7 @@ export const Editor = ({
           
           <div className="pt-6 mt-6 border-t border-border">
             <Results
+              key={testCase?.id || 'no-selection'}
               executionLogs={executionLogs}
               testResults={testResults}
               stepResults={stepResults}
