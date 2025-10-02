@@ -87,21 +87,24 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
 
         // Check if query contains dynamic variables (${...}$ pattern)
         const dynamicPattern = /\$\{([a-zA-Z0-9_]+)\}\$/g;
+        const hasDynamicVars = dynamicPattern.test(query);
         
-        // NEW FIX: Use triple-quoted strings for all queries to handle single quotes properly
-        if (!dynamicPattern.test(query)) {
-          // No dynamic variables present - use triple quotes to handle single quotes
-          gherkin += `  * def query =\n`;
+        if (!hasDynamicVars) {
+          // NO DYNAMIC VARIABLES - Store as text, then convert to string
+          // This approach handles ALL special characters including single quotes perfectly
+          gherkin += `  * text queryText =\n`;
           gherkin += `    """\n${query}\n"""\n`;
-          gherkin += `  * print 'query (no substitution needed): ' + query\n`;
+          gherkin += `  * def query = queryText\n`;
+          gherkin += `  * print 'Query (static): ' + query\n`;
         } else {
-          // Dynamic variables present - need to construct query with proper escaping
-          // First, extract all string literals (content within single quotes)
+          // DYNAMIC VARIABLES PRESENT - Build query with string concatenation
+          
+          // Step 1: Extract all SQL string literals (content within single quotes)
           const stringLiterals: Record<string, string> = {};
           let literalCounter = 0;
           let tempQuery = query;
           
-          // Extract string literals and replace with placeholders
+          // Replace SQL string literals with placeholders
           tempQuery = tempQuery.replace(/'([^']*)'/g, (match, content) => {
             const placeholder = `__STRING_LITERAL_${literalCounter}__`;
             stringLiterals[placeholder] = content;
@@ -109,31 +112,77 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
             return placeholder;
           });
           
-          // Now handle dynamic variable substitution on the temp query
-          const processedQuery = tempQuery.replace(dynamicPattern, (_match, varName) => {
+          // Step 2: Process dynamic variable substitution
+          const parts: string[] = [];
+          let lastIndex = 0;
+          const regex = new RegExp(dynamicPattern);
+          let match;
+          
+          // Reset regex state
+          dynamicPattern.lastIndex = 0;
+          
+          while ((match = regex.exec(tempQuery)) !== null) {
+            const varName = match[1];
+            
+            // Add the part before this variable
+            if (match.index > lastIndex) {
+              const beforePart = tempQuery.substring(lastIndex, match.index);
+              if (beforePart) {
+                parts.push(`"${beforePart}"`);
+              }
+            }
+            
+            // Add the variable substitution
             if (extractedVars[varName]) {
               const varType = extractedVars[varName].type || 'string';
               if (varType === 'string') {
-                return `" + "'" + ${varName} + "'" + "`;
+                // String variables need to be wrapped in SQL quotes
+                parts.push(`"'"`);
+                parts.push(varName);
+                parts.push(`"'"`);
               } else {
-                return `" + ${varName} + "`;
+                // Numeric/boolean variables don't need quotes
+                parts.push(varName);
               }
             } else {
               missingVar = true;
               gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
-              return `MISSING_VAR_${varName}`;
+              parts.push(`"MISSING_VAR_${varName}"`);
             }
+            
+            lastIndex = regex.lastIndex;
+          }
+          
+          // Add any remaining part after the last variable
+          if (lastIndex < tempQuery.length) {
+            const remainingPart = tempQuery.substring(lastIndex);
+            if (remainingPart) {
+              parts.push(`"${remainingPart}"`);
+            }
+          }
+          
+          // Step 3: Restore SQL string literals with proper escaping
+          const restoredParts = parts.map(part => {
+            if (part.startsWith('"') && part.endsWith('"')) {
+              let content = part.slice(1, -1);
+              Object.entries(stringLiterals).forEach(([placeholder, literalContent]) => {
+                if (content.includes(placeholder)) {
+                  // Escape single quotes in the literal content
+                  const escapedContent = literalContent.replace(/'/g, "\\'");
+                  content = content.replace(placeholder, `'${escapedContent}'`);
+                }
+              });
+              return `"${content}"`;
+            }
+            return part;
           });
           
-          // Restore string literals
-          let finalQuery = processedQuery;
-          Object.entries(stringLiterals).forEach(([placeholder, content]) => {
-            finalQuery = finalQuery.replace(placeholder, `'${content}'`);
-          });
+          // Step 4: Join all parts with +
+          const finalQuery = restoredParts.join(' + ');
           
-          // Use triple-quoted string with proper concatenation
-          gherkin += `  * def query = "${finalQuery}"\n`;
-          gherkin += `  * print 'query constructed: ' + query\n`;
+          // Step 5: Generate the Karate variable assignment
+          gherkin += `  * def query = ${finalQuery}\n`;
+          gherkin += `  * print 'Query (dynamic): ' + query\n`;
         }
 
         // Build test context for configuration-aware queries
@@ -189,6 +238,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
               return `MISSING_VAR_${varName}`;
             }
           });
+          // Keep using def with triple quotes for API body - Karate parses it as JSON
           gherkin += `  * def requestBody =\n`;
           gherkin += `    """\n${body}\n"""\n`;
           gherkin += `  And request requestBody\n`;
