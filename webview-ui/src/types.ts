@@ -35,7 +35,11 @@ export interface RedisStepConfig {
 export interface ApiStepConfig {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   url: string;
-  headers: Record<string, string>;
+  headers?: Record<string, string>;
+  queryParams?: Array<{ key: string; value: string; enabled?: boolean }>;
+  bodyType?: ApiBodyType;
+  formData?: Array<{ key: string; value: string; type?: 'text' | 'file'; enabled?: boolean }>;
+  urlEncodedData?: Array<{ key: string; value: string; enabled?: boolean }>;
   body?: string;
   extractVars?: Array<{ name: string; path: string; type?: 'string' | 'integer' | 'float' | 'boolean' }>;
 }

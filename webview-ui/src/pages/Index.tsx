@@ -27,11 +27,12 @@ interface KarateResult {
 
 // src/components/Index.tsx
 
+// Enhanced generateGherkin function with support for query params, form-data, and url-encoded
+
 const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): string => {
   console.log('[DEBUG:Index.tsx] Generating Gherkin for test case:', testCase);
   console.log('[DEBUG:Index.tsx] Workspace tree:', workspaceTree);
 
-  // Get flow control configuration
   const flowControlConfig = testCase.flowControlConfig || {
     stopOnFailure: false,
     continueOnFailure: true,
@@ -39,26 +40,20 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
     failureThreshold: 10
   };
 
-  // --- FIX 1: Create only ONE Feature and ONE Scenario for the entire test case ---
-  // This ensures variables defined in one step are available to the next.
   let gherkin = `Feature: ${testCase.name}\n\n`;
   gherkin += `Scenario: Full flow for ${testCase.name}\n\n`;
 
-  // Add flow control configuration
   gherkin += `  * def flowControlConfig = ${JSON.stringify(flowControlConfig)}\n`;
   gherkin += `  * def failureCount = 0\n`;
   gherkin += `  * def shouldContinue = true\n\n`;
 
-  // Map to track extracted variable types
   const extractedVars: Record<string, { type: string }> = {};
   let missingVar = false;
 
   testCase.steps.forEach((step, idx) => {
-    // Add a comment to delineate steps for readability in the generated file
     gherkin += `  # --- Step ${idx + 1}: ${step.name} ---\n`;
     const sanitizedStepName = step.name.replace(/'/g, "\\'");
 
-    // Check if we should continue execution using proper Karate syntax
     gherkin += `  * def skipStep = !shouldContinue\n`;
     gherkin += `  * if (skipStep) karate.log('Step "${sanitizedStepName}" skipped due to flow control decision')\n`;
     gherkin += `  * if (skipStep) karate.abort()\n`;
@@ -85,63 +80,50 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         const dbConfig = step.config as SqlStepConfig | RedisStepConfig | ClickhouseStepConfig;
         const query = 'query' in dbConfig ? dbConfig.query : dbConfig.command;
 
-        // Check if query contains dynamic variables (${...}$ pattern)
         const dynamicPattern = /\$\{([a-zA-Z0-9_]+)\}\$/g;
         const hasDynamicVars = dynamicPattern.test(query);
-        
+
         if (!hasDynamicVars) {
-          // NO DYNAMIC VARIABLES - Store as text, then convert to string
-          // This approach handles ALL special characters including single quotes perfectly
           gherkin += `  * text queryText =\n`;
           gherkin += `    """\n${query}\n"""\n`;
           gherkin += `  * def query = queryText\n`;
           gherkin += `  * print 'Query (static): ' + query\n`;
         } else {
-          // DYNAMIC VARIABLES PRESENT - Build query with string concatenation
-          
-          // Step 1: Extract all SQL string literals (content within single quotes)
           const stringLiterals: Record<string, string> = {};
           let literalCounter = 0;
           let tempQuery = query;
-          
-          // Replace SQL string literals with placeholders
+
           tempQuery = tempQuery.replace(/'([^']*)'/g, (match, content) => {
             const placeholder = `__STRING_LITERAL_${literalCounter}__`;
             stringLiterals[placeholder] = content;
             literalCounter++;
             return placeholder;
           });
-          
-          // Step 2: Process dynamic variable substitution
+
           const parts: string[] = [];
           let lastIndex = 0;
           const regex = new RegExp(dynamicPattern);
           let match;
-          
-          // Reset regex state
+
           dynamicPattern.lastIndex = 0;
-          
+
           while ((match = regex.exec(tempQuery)) !== null) {
             const varName = match[1];
-            
-            // Add the part before this variable
+
             if (match.index > lastIndex) {
               const beforePart = tempQuery.substring(lastIndex, match.index);
               if (beforePart) {
                 parts.push(`"${beforePart}"`);
               }
             }
-            
-            // Add the variable substitution
+
             if (extractedVars[varName]) {
               const varType = extractedVars[varName].type || 'string';
               if (varType === 'string') {
-                // String variables need to be wrapped in SQL quotes
                 parts.push(`"'"`);
                 parts.push(varName);
                 parts.push(`"'"`);
               } else {
-                // Numeric/boolean variables don't need quotes
                 parts.push(varName);
               }
             } else {
@@ -149,25 +131,22 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
               gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
               parts.push(`"MISSING_VAR_${varName}"`);
             }
-            
+
             lastIndex = regex.lastIndex;
           }
-          
-          // Add any remaining part after the last variable
+
           if (lastIndex < tempQuery.length) {
             const remainingPart = tempQuery.substring(lastIndex);
             if (remainingPart) {
               parts.push(`"${remainingPart}"`);
             }
           }
-          
-          // Step 3: Restore SQL string literals with proper escaping
+
           const restoredParts = parts.map(part => {
             if (part.startsWith('"') && part.endsWith('"')) {
               let content = part.slice(1, -1);
               Object.entries(stringLiterals).forEach(([placeholder, literalContent]) => {
                 if (content.includes(placeholder)) {
-                  // Escape single quotes in the literal content
                   const escapedContent = literalContent.replace(/'/g, "\\'");
                   content = content.replace(placeholder, `'${escapedContent}'`);
                 }
@@ -176,16 +155,12 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
             }
             return part;
           });
-          
-          // Step 4: Join all parts with +
+
           const finalQuery = restoredParts.join(' + ');
-          
-          // Step 5: Generate the Karate variable assignment
           gherkin += `  * def query = ${finalQuery}\n`;
           gherkin += `  * print 'Query (dynamic): ' + query\n`;
         }
 
-        // Build test context for configuration-aware queries
         let testContext = {
           testCaseName: testCase.name,
           workspaceRoot: workspaceTree?.rootPath || '',
@@ -195,7 +170,6 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
           folderConfig: null
         };
 
-        // Try to find the folder and collection paths from the workspace tree
         if (workspaceTree) {
           for (const folder of workspaceTree.folders) {
             for (const collection of folder.collections) {
@@ -216,36 +190,115 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         gherkin += `  And request { query: '#(query)', type: "${step.type}", context: '#(testContext)' }\n`;
         gherkin += `  When method post\n`;
         gherkin += `  Then status 200\n`;
-        // Add error handling for DB responses
         gherkin += `  * def dbResponse = response\n`;
         gherkin += `  * def hasDbError = dbResponse.result && dbResponse.result[0] && dbResponse.result[0].error\n`;
         gherkin += `  * if (hasDbError) karate.fail('DB Error: ' + dbResponse.result[0].error)\n`;
         break;
       }
+
       case 'api': {
         const apiConfig = step.config as ApiStepConfig;
-        gherkin += `  Given url '${apiConfig.url.split('?')[0]}'\n`;
-        if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
-          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
-        }
-        if (apiConfig.body) {
-          let body = apiConfig.body.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
+
+        // Helper function to substitute variables
+        const substituteVars = (text: string): string => {
+          return text.replace(/\$\{([a-zA-Z0-9_]+)\}\$/g, (_match, varName) => {
             if (extractedVars[varName]) {
               return `#(${varName})`;
             } else {
               missingVar = true;
-              gherkin += `  * print 'Required variable "${varName}" is missing in body. Skipping this and subsequent steps.'\n`;
+              gherkin += `  * print 'Required variable "${varName}" is missing. Skipping this and subsequent steps.'\n`;
               return `MISSING_VAR_${varName}`;
             }
           });
-          // Keep using def with triple quotes for API body - Karate parses it as JSON
-          gherkin += `  * def requestBody =\n`;
-          gherkin += `    """\n${body}\n"""\n`;
-          gherkin += `  And request requestBody\n`;
+        };
+
+        // Build base URL (without query params)
+        let baseUrl = apiConfig.url.split('?')[0];
+        baseUrl = substituteVars(baseUrl);
+        gherkin += `  Given url '${baseUrl}'\n`;
+
+        // Add query parameters
+        if (apiConfig.queryParams && apiConfig.queryParams.length > 0) {
+          const enabledParams = apiConfig.queryParams.filter(p => p.enabled !== false && p.key);
+          enabledParams.forEach(param => {
+            const key = param.key;
+            const value = substituteVars(param.value);
+            gherkin += `  And param ${key} = '${value}'\n`;
+          });
         }
+
+        // Add headers
+        if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
+          gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
+        }
+
+        // Handle different body types
+        const bodyType = apiConfig.bodyType || 'raw';
+
+        switch (bodyType) {
+          case 'raw':
+            if (apiConfig.body) {
+              const body = substituteVars(apiConfig.body);
+              gherkin += `  * def requestBody =\n`;
+              gherkin += `    """\n${body}\n"""\n`;
+              gherkin += `  And request requestBody\n`;
+            }
+            break;
+
+          case 'form-data':
+            if (apiConfig.formData && apiConfig.formData.length > 0) {
+              const enabledFields = apiConfig.formData.filter(f => f.enabled !== false && f.key);
+
+              // Set content-type for multipart
+              gherkin += `  And header Content-Type = 'multipart/form-data'\n`;
+
+              // Build multipart object
+              gherkin += `  * def formDataObj = {}\n`;
+              enabledFields.forEach(field => {
+                const key = field.key;
+                const value = substituteVars(field.value);
+
+                if (field.type === 'file') {
+                  // For file uploads
+                  gherkin += `  * def fileContent = karate.read('${value}')\n`;
+                  gherkin += `  * formDataObj.${key} = { read: fileContent, filename: '${value.split('/').pop()}' }\n`;
+                } else {
+                  // For text fields
+                  gherkin += `  * formDataObj.${key} = '${value}'\n`;
+                }
+              });
+              gherkin += `  And multipart fields formDataObj\n`;
+            }
+            break;
+
+          case 'x-www-form-urlencoded':
+            if (apiConfig.urlEncodedData && apiConfig.urlEncodedData.length > 0) {
+              const enabledFields = apiConfig.urlEncodedData.filter(f => f.enabled !== false && f.key);
+
+              // Set content-type
+              gherkin += `  And header Content-Type = 'application/x-www-form-urlencoded'\n`;
+
+              // Build form fields object
+              gherkin += `  * def formFields = {}\n`;
+              enabledFields.forEach(field => {
+                const key = field.key;
+                const value = substituteVars(field.value);
+                gherkin += `  * formFields.${key} = '${value}'\n`;
+              });
+              gherkin += `  And form fields formFields\n`;
+            }
+            break;
+
+          case 'none':
+          default:
+            // No body
+            break;
+        }
+
         gherkin += `  When method ${apiConfig.method.toUpperCase()}\n`;
-        // Don't enforce status 200 - capture response regardless of status
         gherkin += `  * print 'API Response Status: ' + responseStatus\n`;
+
+        // Extract variables from response
         if (apiConfig.extractVars && apiConfig.extractVars.length > 0) {
           apiConfig.extractVars.forEach(({ name, path, type }) => {
             if (name && path) {
@@ -257,6 +310,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
             }
           });
         }
+
         gherkin += `  * def endTime = System.currentTimeMillis()\n`;
         gherkin += `  * def executionTime = endTime - startTime\n`;
         gherkin += `  * def resultData = { body: '#(response)', headers: '#(responseHeaders)', status: '#(responseStatus)' }\n`;
@@ -264,7 +318,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
       }
     }
 
-    // Validation logic - only run if no missing variables
+    // Validation logic
     if (step.validations && step.validations.length > 0 && !missingVar) {
       step.validations.forEach((validation: ValidationConfig, valIdx) => {
         const sanitizedTarget = validation.target.replace(/'/g, "\\'");
@@ -274,13 +328,11 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         if (step.type === 'api') {
           actualValue = `karate.jsonPath(response, '${sanitizedTarget}')`;
         } else {
-          // For DB, assume result is an array of objects
           actualValue = `response.result[0].${sanitizedTarget}`;
         }
 
         gherkin += `  * def validationActual = ${actualValue}\n`;
 
-        // Type-aware comparison
         let expectedValue = validation.expectedValue;
         if (validation.dataType === 'number') {
           expectedValue = parseFloat(validation.expectedValue).toString();
@@ -301,10 +353,8 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         gherkin += `  * def sdf = new SimpleDateFormat('yyyy-MM-dd HH:mm:ss')\n`;
         gherkin += `  * def currentTimestamp = sdf.format(new Date())\n`;
 
-
         gherkin += `  * def validationExpected = ${expectedValue}\n`;
-        
-        // Generate comparison based on operator
+
         let comparisonLogic = '';
         switch (validation.operator || 'equals') {
           case 'equals':
@@ -334,10 +384,9 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
           default:
             comparisonLogic = 'validationActual == validationExpected';
         }
-        
+
         gherkin += `  * def validationResult = (${comparisonLogic}) ? 'success' : 'failure'\n`;
 
-        // Add custom error message if provided
         const customMessage = validation.customErrorMessage ?
           validation.customErrorMessage.replace(/'/g, "\\'") :
           `Validation failed for ${sanitizedTarget}`;
@@ -348,25 +397,20 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         gherkin += `  * print karate.toJson(validationPayload)\n`;
         gherkin += `  * print '---QATO_VALIDATION_END---'\n`;
 
-        // Handle flow control based on validation result
         gherkin += `  * if (validationResult == 'failure') failureCount = failureCount + 1\n`;
         gherkin += `  * if (validationResult == 'failure' && flowControlConfig.stopOnFailure) shouldContinue = false\n`;
         gherkin += `  * if (failureCount >= flowControlConfig.failureThreshold) shouldContinue = false\n`;
-
-        // Only assert if we should stop on failure, otherwise just log
         gherkin += `  * if (validationResult == 'failure' && flowControlConfig.stopOnFailure) karate.fail('Validation failed: ' + validationMessage)\n`;
       });
     }
 
-    // Handle result generation based on step type and missing variables
+    // Handle result generation
     if (missingVar) {
-      // If missing variables, create an error result
       gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: { error: 'Step skipped due to missing required variables' }, executionTime: 0 }\n`;
       gherkin += `  * print '---QATO_RESULT_START---'\n`;
       gherkin += `  * print karate.toJson(qatoPayload)\n`;
       gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
     } else {
-      // Normal result generation
       if (step.type !== 'api') {
         gherkin += `  * def responseData = response\n`;
         gherkin += `  * def executionTime = responseData.executionTime\n`;
@@ -375,7 +419,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
       gherkin += `  * def qatoPayload = { stepName: '${sanitizedStepName}', type: '${step.type}', result: '#(resultData)', executionTime: '#(executionTime)' }\n`;
       gherkin += `  * print '---QATO_RESULT_START---'\n`;
       gherkin += `  * print karate.toJson(qatoPayload)\n`;
-      gherkin += `  * print '---QATO_RESULT_END---'\n\n`; // Add a newline for readability
+      gherkin += `  * print '---QATO_RESULT_END---'\n\n`;
     }
   });
 
@@ -393,7 +437,7 @@ const Index = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const { toast } = useToast();
   const runStartTime = useRef<number | null>(null);
-  
+
   // Test results manager instance
   const resultsManager = useRef(new TestResultsManager());
   const templateManager = useRef(new StepTemplateManager());
@@ -446,7 +490,7 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     vscode.postMessage({
       command: 'createFolder',
       payload: { name, parentPath: workspaceTree.rootPath }
@@ -458,13 +502,13 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     const folder = workspaceTree.folders.find(f => f.id === folderId);
     if (!folder) {
       toast({ title: "Error", description: "Folder not found", variant: "destructive" });
       return;
     }
-    
+
     vscode.postMessage({
       command: 'createCollection',
       payload: { name, folderPath: folder.path }
@@ -476,7 +520,7 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     // Find the collection path
     let collectionPath = '';
     for (const folder of workspaceTree.folders) {
@@ -486,12 +530,12 @@ const Index = () => {
         break;
       }
     }
-    
+
     if (!collectionPath) {
       toast({ title: "Error", description: "Collection not found", variant: "destructive" });
       return;
     }
-    
+
     const newTestCase: TestCase = {
       id: `test-${Date.now()}`,
       name,
@@ -500,7 +544,7 @@ const Index = () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    
+
     vscode.postMessage({
       command: 'saveTestCase',
       payload: { testCase: newTestCase, collectionPath }
@@ -512,7 +556,7 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     // Find the collection path for this test case
     let collectionPath = '';
     for (const folder of workspaceTree.folders) {
@@ -522,18 +566,18 @@ const Index = () => {
         break;
       }
     }
-    
+
     if (!collectionPath) {
       toast({ title: "Error", description: "Collection not found for test case", variant: "destructive" });
       return;
     }
-    
+
     // Save the updated test case to file system
     vscode.postMessage({
       command: 'saveTestCase',
       payload: { testCase: updatedTestCase, collectionPath }
     });
-    
+
     setSelectedTestCase(updatedTestCase);
   };
 
@@ -542,7 +586,7 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     // Find the test case file path
     let testCasePath = '';
     for (const folder of workspaceTree.folders) {
@@ -555,26 +599,26 @@ const Index = () => {
       }
       if (testCasePath) break;
     }
-    
+
     if (!testCasePath) {
       toast({ title: "Error", description: "Test case file not found", variant: "destructive" });
       return;
     }
-    
+
     // Clear selection if deleting the currently selected test case
     if (selectedTestCase?.id === testCase.id) {
       setSelectedTestCase(null);
     }
-    
+
     // Remove results for this test case
     resultsManager.current.removeResults(testCase.id);
-    
+
     // Send delete command to extension
     vscode.postMessage({
       command: 'deleteTestCase',
       payload: { testCasePath }
     });
-    
+
     toast({ title: "Test Case Deleted", description: `"${testCase.name}" has been deleted.` });
   }, [workspaceTree, selectedTestCase, toast]);
 
@@ -583,7 +627,7 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     // Find the collection path
     let collectionPath = '';
     let collectionName = '';
@@ -597,23 +641,23 @@ const Index = () => {
         }
       }
     }
-    
+
     if (!collectionPath) {
       toast({ title: "Error", description: "Collection not found", variant: "destructive" });
       return;
     }
-    
+
     // Clear selection if deleting a collection that contains the selected test case
     if (selectedTestCase?.collectionId === collectionId) {
       setSelectedTestCase(null);
     }
-    
+
     // Send delete command to extension
     vscode.postMessage({
       command: 'deleteCollection',
       payload: { collectionPath }
     });
-    
+
     toast({ title: "Collection Deleted", description: `"${collectionName}" and all its test cases have been deleted.` });
   }, [workspaceTree, selectedTestCase, toast]);
 
@@ -622,36 +666,36 @@ const Index = () => {
       toast({ title: "Error", description: "No workspace initialized", variant: "destructive" });
       return;
     }
-    
+
     // Find the folder path
     const folder = workspaceTree.folders.find(f => f.id === folderId);
     if (!folder) {
       toast({ title: "Error", description: "Folder not found", variant: "destructive" });
       return;
     }
-    
+
     // Clear selection if deleting a folder that contains the selected test case
     if (selectedTestCase) {
-      const containsSelectedTestCase = folder.collections.some(c => 
+      const containsSelectedTestCase = folder.collections.some(c =>
         c.testCases.some(tc => tc.testCase.id === selectedTestCase.id)
       );
       if (containsSelectedTestCase) {
         setSelectedTestCase(null);
       }
     }
-    
+
     // Send delete command to extension
     vscode.postMessage({
       command: 'deleteFolder',
       payload: { folderPath: folder.path }
     });
-    
+
     toast({ title: "Folder Deleted", description: `"${folder.name}" and all its contents have been deleted.` });
   }, [workspaceTree, selectedTestCase, toast]);
 
   const handleUpdateGlobalConfig = useCallback((config: any) => {
     if (!workspaceTree) return;
-    
+
     console.log('[DEBUG:Index.tsx] Sending updateGlobalConfig message:', JSON.stringify(config, null, 2));
     vscode.postMessage({
       command: 'updateGlobalConfig',
@@ -679,7 +723,7 @@ const Index = () => {
         toast({ title: "Workspace Loaded", description: `Loaded ${workspaceTree.folders.length} folders` });
         break;
       }
-      
+
       case 'fileSystemChanged': {
         const { workspaceTree } = message.payload as { workspaceTree: WorkspaceTree };
         console.log('[DEBUG:Index.tsx] Received fileSystemChanged message, updating workspace tree:', JSON.stringify(workspaceTree, null, 2));
@@ -687,13 +731,13 @@ const Index = () => {
         setFolders(convertWorkspaceToFolders(workspaceTree));
         break;
       }
-      
+
       case 'workspaceError': {
         const { error } = message.payload as { error: string };
         toast({ title: "Workspace Error", description: error, variant: "destructive" });
         break;
       }
-      
+
       case 'inputBoxResult': {
         const { value, context } = message.payload as { value?: string; context: any };
         if (!value) return;
@@ -715,7 +759,7 @@ const Index = () => {
         }
         break;
       }
-      
+
       case 'testResult': {
         setIsExecuting(false);
         if (!message.payload) {
@@ -731,7 +775,7 @@ const Index = () => {
         }
         const payload = message.payload as any;
         const { parsedResults, validationResults, testCaseId, ...karateSummary } = payload;
-        
+
         // Store results in the results manager for the specific test case
         const targetTestCaseId = testCaseId || selectedTestCase?.id;
         if (targetTestCaseId) {
@@ -743,7 +787,7 @@ const Index = () => {
             [] // executionLogs - could be added later if needed
           );
         }
-        
+
         // Persist last execution into the selected test case file
         if (selectedTestCase && targetTestCaseId === selectedTestCase.id) {
           const updated: TestCase = {
@@ -759,7 +803,7 @@ const Index = () => {
           // Save to disk via existing mechanism
           handleUpdateTestCase(updated);
         }
-        
+
         console.log('[DEBUG:Index.tsx] Processed Karate summary:', karateSummary);
         console.log('[DEBUG:Index.tsx] Processed step results:', parsedResults);
         console.log('[DEBUG:Index.tsx] Processed validation results:', validationResults);
@@ -770,7 +814,7 @@ const Index = () => {
         });
         break;
       }
-      
+
       case 'testExecutionError': {
         setIsExecuting(false);
         const { message: errorMessage } = message.payload as { message?: string };
@@ -841,7 +885,7 @@ const Index = () => {
     if (!testCase || isExecuting) return;
 
     setIsExecuting(true);
-    
+
     // Clear results for this specific test case
     resultsManager.current.clearResults(testCase.id);
 
@@ -857,7 +901,7 @@ const Index = () => {
       const gherkinContent = generateGherkin(testCase, workspaceTree);
       vscode.postMessage({
         command: 'runGeneratedTest',
-        payload: { 
+        payload: {
           featureFileContent: gherkinContent,
           testContext: {
             testCaseName: testCase.name,
@@ -931,8 +975,8 @@ const Index = () => {
 
       toast({
         title: "Configuration Debug",
-        description: debugResult.success ? 
-          `Configuration loaded successfully. Check console for details.` : 
+        description: debugResult.success ?
+          `Configuration loaded successfully. Check console for details.` :
           `Configuration debug failed: ${debugResult.error}`,
         variant: debugResult.success ? "default" : "destructive",
       });
@@ -967,7 +1011,7 @@ const Index = () => {
 
   return (
     <div className="h-screen bg-background text-foreground flex flex-col theme-transition overflow-hidden">
-      <Header 
+      <Header
         globalConfig={globalConfig}
         onUpdateGlobalConfig={handleUpdateGlobalConfig}
         onOpenTemplateManagement={() => setShowTemplateManagement(true)}
@@ -990,18 +1034,18 @@ const Index = () => {
         />
 
         <div className="flex-1 flex flex-col min-h-0">
-            <Editor
-              testCase={selectedTestCase}
-              onUpdateTestCase={handleUpdateTestCase}
-              onRunTestCase={handleRunTestCase}
-              onDebugConfig={handleDebugConfig}
-              isExecuting={isExecuting}
-              executionLogs={getCurrentResults().executionLogs}
-              testResults={getCurrentResults().testResults}
-              stepResults={getCurrentResults().stepResults}
-              validationResults={getCurrentResults().validationResults}
-              templateManager={templateManager.current}
-            />
+          <Editor
+            testCase={selectedTestCase}
+            onUpdateTestCase={handleUpdateTestCase}
+            onRunTestCase={handleRunTestCase}
+            onDebugConfig={handleDebugConfig}
+            isExecuting={isExecuting}
+            executionLogs={getCurrentResults().executionLogs}
+            testResults={getCurrentResults().testResults}
+            stepResults={getCurrentResults().stepResults}
+            validationResults={getCurrentResults().validationResults}
+            templateManager={templateManager.current}
+          />
         </div>
       </div>
 
