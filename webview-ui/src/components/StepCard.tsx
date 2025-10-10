@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3, Save } from 'lucide-react';
+import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3, Save, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,23 +7,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
 import { ApiHeadersEditor } from './ApiHeadersEditor';
 
-// Updated interface to include children prop and collapse state
 interface StepCardProps {
   step: TestStep;
   index: number;
   onUpdate: (updates: Partial<TestStep>) => void;
   onDelete: () => void;
   children?: React.ReactNode;
-  defaultCollapsed?: boolean; // New prop to control default state
-  onSaveAsTemplate?: (step: TestStep) => void; // New prop for saving as template
+  defaultCollapsed?: boolean;
+  onSaveAsTemplate?: (step: TestStep) => void;
 }
 
 export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true, onSaveAsTemplate }: StepCardProps) => {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-  // Move useRef to top level to avoid conditional hook call
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const getStepIcon = () => {
@@ -62,7 +61,17 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
         return redisConfig.command ? redisConfig.command.substring(0, 60) + (redisConfig.command.length > 60 ? '...' : '') : 'No command configured';
       case 'api':
         const apiConfig = step.config as ApiStepConfig;
-        return `${apiConfig.method} ${apiConfig.url || 'No URL configured'}`.substring(0, 80);
+        // Build full URL with query params for preview
+        let fullUrl = apiConfig.url || 'No URL configured';
+        if (apiConfig.queryParams && apiConfig.queryParams.length > 0) {
+          const enabledParams = apiConfig.queryParams.filter(p => p.enabled !== false && p.key && p.value);
+          if (enabledParams.length > 0) {
+            const baseUrl = fullUrl.split('?')[0];
+            const queryString = enabledParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&');
+            fullUrl = `${baseUrl}?${queryString}`;
+          }
+        }
+        return `${apiConfig.method} ${fullUrl}`.substring(0, 100);
       case 'clickhouse':
         const clickhouseConfig = step.config as ClickhouseStepConfig;
         return clickhouseConfig.query ? clickhouseConfig.query.substring(0, 60) + (clickhouseConfig.query.length > 60 ? '...' : '') : 'No query configured';
@@ -133,19 +142,58 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
         );
 
       case 'api':
-        const apiConfig = step.config as ApiStepConfig;
-        // Handle body change with auto-resizing
+        { 
+          const apiConfig = step.config as ApiStepConfig;
+        
+        // Initialize bodyType if not set
+        if (!apiConfig.bodyType) {
+          apiConfig.bodyType = 'raw';
+        }
+
         const handleBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           onUpdate({ config: { ...apiConfig, body: e.target.value } });
-          // Auto-resize logic
           const textarea = bodyTextareaRef.current;
           if (textarea) {
             textarea.style.height = 'auto';
-            textarea.style.height = Math.min(textarea.scrollHeight, 600) + 'px'; // max 600px
+            textarea.style.height = Math.min(textarea.scrollHeight, 600) + 'px';
           }
         };
+
+        // Build full URL preview with query params
+        const buildFullUrlPreview = () => {
+          let fullUrl = apiConfig.url || '';
+          if (apiConfig.queryParams && apiConfig.queryParams.length > 0) {
+            const enabledParams = apiConfig.queryParams.filter(p => p.enabled !== false && p.key && p.value);
+            if (enabledParams.length > 0) {
+              const baseUrl = fullUrl.split('?')[0];
+              const queryString = enabledParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&');
+              fullUrl = `${baseUrl}?${queryString}`;
+            }
+          }
+          return fullUrl;
+        };
+
+        // Function to update URL based on query parameters
+        const updateUrlFromParams = (params: Array<{ key: string; value: string; enabled?: boolean }>) => {
+          if (!apiConfig.url) return apiConfig.url || '';
+          
+          const baseUrl = apiConfig.url.split('?')[0];
+          if (!params || params.length === 0) {
+            return baseUrl;
+          }
+          
+          const enabledParams = params.filter(p => p.enabled !== false && p.key && p.value);
+          if (enabledParams.length === 0) {
+            return baseUrl;
+          }
+          
+          const queryString = enabledParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&');
+          return `${baseUrl}?${queryString}`;
+        };
+
         return (
           <div className="space-y-3">
+            {/* Method and URL */}
             <div className="flex gap-2">
               <Select
                 value={apiConfig.method}
@@ -164,22 +212,153 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                   <SelectItem value="PATCH">PATCH</SelectItem>
                 </SelectContent>
               </Select>
-              <Textarea
+              <Input
                 value={apiConfig.url}
-                onChange={(e) => onUpdate({ 
-                  config: { ...apiConfig, url: e.target.value } 
-                })}
+                onChange={(e) => {
+                  const newUrl = e.target.value;
+                  // Parse query parameters from the new URL
+                  let parsedUrl;
+                  try {
+                    // Handle relative URLs by providing a base
+                    parsedUrl = new URL(newUrl, 'http://example.com');
+                  } catch {
+                    // If URL parsing fails, just update the URL without parsing params
+                    onUpdate({ 
+                      config: { ...apiConfig, url: newUrl } 
+                    });
+                    return;
+                  }
+                  
+                  const searchParams = new URLSearchParams(parsedUrl.search);
+                  
+                  // Create new query params array from URL (this replaces all existing params)
+                  const newQueryParams = Array.from(searchParams.entries()).map(([key, value]) => ({
+                    key,
+                    value,
+                    enabled: true
+                  }));
+                  
+                  // Update both URL and query parameters
+                  onUpdate({ 
+                    config: { 
+                      ...apiConfig, 
+                      url: newUrl,
+                      queryParams: newQueryParams
+                    } 
+                  });
+                }}
                 placeholder="https://api.example.com/endpoint"
                 className="flex-1 bg-muted border-border text-foreground rounded-lg"
               />
             </div>
 
-            <Tabs defaultValue="headers" className="w-full">
+            {/* Full URL Preview */}
+            {apiConfig.queryParams && apiConfig.queryParams.some(p => p.enabled !== false && p.key && p.value) && (
+              <div className="px-4 py-3 bg-muted/50 border border-border rounded-lg shadow-sm">
+                <label className="text-xs text-muted-foreground font-semibold mb-1.5 block uppercase tracking-wide">Full URL Preview:</label>
+                {buildFullUrlPreview()}
+              </div>
+            )}
+
+            <Tabs defaultValue="params" className="w-full">
               <TabsList className="bg-muted rounded-lg">
+                <TabsTrigger value="params" className="rounded-md">Params</TabsTrigger>
                 <TabsTrigger value="headers" className="rounded-md">Headers</TabsTrigger>
                 <TabsTrigger value="body" className="rounded-md">Body</TabsTrigger>
               </TabsList>
               
+              {/* Query Params Tab */}
+              <TabsContent value="params" className="mt-3">
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground font-semibold">Query Parameters</label>
+                  {(apiConfig.queryParams || []).map((param, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Checkbox
+                        checked={param.enabled !== false}
+                        onCheckedChange={(checked) => {
+                          const newParams = [...(apiConfig.queryParams || [])];
+                          newParams[i] = { ...newParams[i], enabled: checked as boolean };
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
+                        }}
+                      />
+                      <Input
+                        value={param.key}
+                        onChange={e => {
+                          const newParams = [...(apiConfig.queryParams || [])];
+                          newParams[i] = { ...newParams[i], key: e.target.value };
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
+                        }}
+                        placeholder="Key"
+                        className="w-1/3 bg-muted border-border rounded-lg"
+                      />
+                      <Input
+                        value={param.value}
+                        onChange={e => {
+                          const newParams = [...(apiConfig.queryParams || [])];
+                          newParams[i] = { ...newParams[i], value: e.target.value };
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
+                        }}
+                        placeholder="Value (use ${varName}$ for variables)"
+                        className="flex-1 bg-muted border-border rounded-lg"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        onClick={() => {
+                          const newParams = [...(apiConfig.queryParams || [])];
+                          newParams.splice(i, 1);
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const newParams = [...(apiConfig.queryParams || []), { key: '', value: '', enabled: true }];
+                      const updatedConfig = { ...apiConfig, queryParams: newParams };
+                      onUpdate({ 
+                        config: { 
+                          ...updatedConfig, 
+                          url: updateUrlFromParams(newParams) 
+                        } 
+                      });
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Parameter
+                  </Button>
+                </div>
+              </TabsContent>
+
+              {/* Headers Tab */}
               <TabsContent value="headers" className="mt-3">
                 <ApiHeadersEditor
                   headers={apiConfig.headers || {}}
@@ -187,16 +366,177 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                 />
               </TabsContent>
               
-              <TabsContent value="body" className="mt-3">
-                <Textarea
-                  ref={bodyTextareaRef}
-                  value={apiConfig.body || ''}
-                  onChange={handleBodyChange}
-                  placeholder='{"key": "value"}'
-                  className="bg-muted border-border text-foreground font-mono text-sm min-h-[120px] rounded-lg"
-                  style={{ lineHeight: '1.5', overflow: 'auto' }}
-                  rows={6}
-                />
+              {/* Body Tab */}
+              <TabsContent value="body" className="mt-3 space-y-3">
+                {/* Body Type Selector */}
+                <div className="flex gap-2 items-center">
+                  <label className="text-sm text-muted-foreground">Body Type:</label>
+                  <Select
+                    value={apiConfig.bodyType || 'raw'}
+                    onValueChange={(value: any) => onUpdate({ 
+                      config: { ...apiConfig, bodyType: value } 
+                    })}
+                  >
+                    <SelectTrigger className="w-48 bg-muted border-border rounded-lg">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-muted border-border rounded-lg">
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="raw">Raw (JSON/Text)</SelectItem>
+                      <SelectItem value="form-data">Form Data</SelectItem>
+                      <SelectItem value="x-www-form-urlencoded">x-www-form-urlencoded</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Raw Body */}
+                {apiConfig.bodyType === 'raw' && (
+                  <Textarea
+                    ref={bodyTextareaRef}
+                    value={apiConfig.body || ''}
+                    onChange={handleBodyChange}
+                    placeholder='{"key": "value"} or use ${varName}$ for variables'
+                    className="bg-muted border-border text-foreground font-mono text-sm min-h-[120px] rounded-lg"
+                    style={{ lineHeight: '1.5', overflow: 'auto' }}
+                    rows={6}
+                  />
+                )}
+
+                {/* Form Data */}
+                {apiConfig.bodyType === 'form-data' && (
+                  <div className="space-y-2">
+                    {(apiConfig.formData || []).map((field, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <Checkbox
+                          checked={field.enabled !== false}
+                          onCheckedChange={(checked) => {
+                            const newFormData = [...(apiConfig.formData || [])];
+                            newFormData[i] = { ...newFormData[i], enabled: checked as boolean };
+                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                          }}
+                        />
+                        <Select
+                          value={field.type || 'text'}
+                          onValueChange={(value: any) => {
+                            const newFormData = [...(apiConfig.formData || [])];
+                            newFormData[i] = { ...newFormData[i], type: value };
+                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                          }}
+                        >
+                          <SelectTrigger className="w-24 bg-muted border-border rounded-lg">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-muted border-border rounded-lg">
+                            <SelectItem value="text">Text</SelectItem>
+                            <SelectItem value="file">File</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={field.key}
+                          onChange={e => {
+                            const newFormData = [...(apiConfig.formData || [])];
+                            newFormData[i] = { ...newFormData[i], key: e.target.value };
+                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                          }}
+                          placeholder="Key"
+                          className="w-1/3 bg-muted border-border rounded-lg"
+                        />
+                        <Input
+                          value={field.value}
+                          onChange={e => {
+                            const newFormData = [...(apiConfig.formData || [])];
+                            newFormData[i] = { ...newFormData[i], value: e.target.value };
+                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                          }}
+                          placeholder={field.type === 'file' ? 'File path or ${varName}$' : 'Value or ${varName}$'}
+                          className="flex-1 bg-muted border-border rounded-lg"
+                        />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => {
+                            const newFormData = [...(apiConfig.formData || [])];
+                            newFormData.splice(i, 1);
+                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newFormData = [...(apiConfig.formData || []), { key: '', value: '', type: 'text', enabled: true }];
+                        onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Field
+                    </Button>
+                  </div>
+                )}
+
+                {/* URL Encoded */}
+                {apiConfig.bodyType === 'x-www-form-urlencoded' && (
+                  <div className="space-y-2">
+                    {(apiConfig.urlEncodedData || []).map((field, i) => (
+                      <div key={i} className="flex gap-2 items-center">
+                        <Checkbox
+                          checked={field.enabled !== false}
+                          onCheckedChange={(checked) => {
+                            const newUrlEncoded = [...(apiConfig.urlEncodedData || [])];
+                            newUrlEncoded[i] = { ...newUrlEncoded[i], enabled: checked as boolean };
+                            onUpdate({ config: { ...apiConfig, urlEncodedData: newUrlEncoded } });
+                          }}
+                        />
+                        <Input
+                          value={field.key}
+                          onChange={e => {
+                            const newUrlEncoded = [...(apiConfig.urlEncodedData || [])];
+                            newUrlEncoded[i] = { ...newUrlEncoded[i], key: e.target.value };
+                            onUpdate({ config: { ...apiConfig, urlEncodedData: newUrlEncoded } });
+                          }}
+                          placeholder="Key"
+                          className="w-1/3 bg-muted border-border rounded-lg"
+                        />
+                        <Input
+                          value={field.value}
+                          onChange={e => {
+                            const newUrlEncoded = [...(apiConfig.urlEncodedData || [])];
+                            newUrlEncoded[i] = { ...newUrlEncoded[i], value: e.target.value };
+                            onUpdate({ config: { ...apiConfig, urlEncodedData: newUrlEncoded } });
+                          }}
+                          placeholder="Value (use ${varName}$ for variables)"
+                          className="flex-1 bg-muted border-border rounded-lg"
+                        />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => {
+                            const newUrlEncoded = [...(apiConfig.urlEncodedData || [])];
+                            newUrlEncoded.splice(i, 1);
+                            onUpdate({ config: { ...apiConfig, urlEncodedData: newUrlEncoded } });
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const newUrlEncoded = [...(apiConfig.urlEncodedData || []), { key: '', value: '', enabled: true }];
+                        onUpdate({ config: { ...apiConfig, urlEncodedData: newUrlEncoded } });
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Field
+                    </Button>
+                  </div>
+                )}
               </TabsContent>
             </Tabs>
 
@@ -270,10 +610,10 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               </Button>
             </div>
           </div>
-        );
+        ); }
 
       case 'clickhouse':
-        const clickhouseConfig = step.config as ClickhouseStepConfig;
+        { const clickhouseConfig = step.config as ClickhouseStepConfig;
         return (
           <div className="space-y-3">
             <div>
@@ -288,7 +628,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               />
             </div>
           </div>
-        );
+        ); }
     }
   };
 
@@ -311,12 +651,11 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
           variant="ghost" 
           size="sm" 
           className="cursor-grab text-muted-foreground p-1 hover:bg-accent rounded-lg transition-colors duration-200"
-          onClick={(e) => e.stopPropagation()} // Prevent collapse toggle when dragging
+          onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-4 w-4" />
         </Button>
         
-        {/* Collapse/Expand Icon */}
         <div className="flex items-center justify-center w-6 h-6 text-muted-foreground">
           {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </div>
@@ -342,7 +681,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
             <Input
               value={step.name}
               onChange={(e) => onUpdate({ name: e.target.value })}
-              onClick={(e) => e.stopPropagation()} // Prevent collapse when editing name
+              onClick={(e) => e.stopPropagation()}
               className="bg-transparent border-none text-foreground font-semibold p-0 h-auto focus-visible:ring-0 rounded-lg text-lg"
             />
           )}
@@ -398,7 +737,6 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
       {/* Expandable Content */}
       {!isCollapsed && (
         <div className="px-6 pb-6 space-y-4 animate-in slide-in-from-top-2 duration-200">
-          {/* Delay Input */}
           <div>
             <label className="text-sm text-muted-foreground mb-1 block">Delay Before Executing (ms)</label>
             <Input
@@ -417,10 +755,8 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
             />
           </div>
 
-          {/* Step Content */}
           {renderStepContent()}
 
-          {/* Render Children (ValidationEditor and validation list) */}
           {children && (
             <div className="mt-6 pt-4 border-t border-border/50">
               {children}
