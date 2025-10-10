@@ -217,13 +217,32 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         baseUrl = substituteVars(baseUrl);
         gherkin += `  Given url '${baseUrl}'\n`;
 
-        // Add query parameters
+        // Add query parameters - GROUP BY KEY TO HANDLE MULTIPLE VALUES
         if (apiConfig.queryParams && apiConfig.queryParams.length > 0) {
           const enabledParams = apiConfig.queryParams.filter(p => p.enabled !== false && p.key);
+          
+          // Group parameters by key
+          const paramsByKey: Record<string, string[]> = {};
           enabledParams.forEach(param => {
             const key = param.key;
             const value = substituteVars(param.value);
-            gherkin += `  And param ${key} = '${value}'\n`;
+            
+            if (!paramsByKey[key]) {
+              paramsByKey[key] = [];
+            }
+            paramsByKey[key].push(value);
+          });
+
+          // Generate param statements
+          Object.entries(paramsByKey).forEach(([key, values]) => {
+            if (values.length === 1) {
+              // Single value - use string directly
+              gherkin += `  And param ${key} = '${values[0]}'\n`;
+            } else {
+              // Multiple values - use array notation
+              const valuesArray = values.map(v => `'${v}'`).join(', ');
+              gherkin += `  And param ${key} = [${valuesArray}]\n`;
+            }
           });
         }
 

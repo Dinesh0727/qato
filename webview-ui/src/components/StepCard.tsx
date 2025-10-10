@@ -173,6 +173,24 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
           return fullUrl;
         };
 
+        // Function to update URL based on query parameters
+        const updateUrlFromParams = (params: Array<{ key: string; value: string; enabled?: boolean }>) => {
+          if (!apiConfig.url) return apiConfig.url || '';
+          
+          const baseUrl = apiConfig.url.split('?')[0];
+          if (!params || params.length === 0) {
+            return baseUrl;
+          }
+          
+          const enabledParams = params.filter(p => p.enabled !== false && p.key && p.value);
+          if (enabledParams.length === 0) {
+            return baseUrl;
+          }
+          
+          const queryString = enabledParams.map(p => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join('&');
+          return `${baseUrl}?${queryString}`;
+        };
+
         return (
           <div className="space-y-3">
             {/* Method and URL */}
@@ -196,9 +214,39 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               </Select>
               <Input
                 value={apiConfig.url}
-                onChange={(e) => onUpdate({ 
-                  config: { ...apiConfig, url: e.target.value } 
-                })}
+                onChange={(e) => {
+                  const newUrl = e.target.value;
+                  // Parse query parameters from the new URL
+                  let parsedUrl;
+                  try {
+                    // Handle relative URLs by providing a base
+                    parsedUrl = new URL(newUrl, 'http://example.com');
+                  } catch {
+                    // If URL parsing fails, just update the URL without parsing params
+                    onUpdate({ 
+                      config: { ...apiConfig, url: newUrl } 
+                    });
+                    return;
+                  }
+                  
+                  const searchParams = new URLSearchParams(parsedUrl.search);
+                  
+                  // Create new query params array from URL (this replaces all existing params)
+                  const newQueryParams = Array.from(searchParams.entries()).map(([key, value]) => ({
+                    key,
+                    value,
+                    enabled: true
+                  }));
+                  
+                  // Update both URL and query parameters
+                  onUpdate({ 
+                    config: { 
+                      ...apiConfig, 
+                      url: newUrl,
+                      queryParams: newQueryParams
+                    } 
+                  });
+                }}
                 placeholder="https://api.example.com/endpoint"
                 className="flex-1 bg-muted border-border text-foreground rounded-lg"
               />
@@ -230,7 +278,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                         onCheckedChange={(checked) => {
                           const newParams = [...(apiConfig.queryParams || [])];
                           newParams[i] = { ...newParams[i], enabled: checked as boolean };
-                          onUpdate({ config: { ...apiConfig, queryParams: newParams } });
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
                         }}
                       />
                       <Input
@@ -238,7 +292,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                         onChange={e => {
                           const newParams = [...(apiConfig.queryParams || [])];
                           newParams[i] = { ...newParams[i], key: e.target.value };
-                          onUpdate({ config: { ...apiConfig, queryParams: newParams } });
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
                         }}
                         placeholder="Key"
                         className="w-1/3 bg-muted border-border rounded-lg"
@@ -248,7 +308,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                         onChange={e => {
                           const newParams = [...(apiConfig.queryParams || [])];
                           newParams[i] = { ...newParams[i], value: e.target.value };
-                          onUpdate({ config: { ...apiConfig, queryParams: newParams } });
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
                         }}
                         placeholder="Value (use ${varName}$ for variables)"
                         className="flex-1 bg-muted border-border rounded-lg"
@@ -259,7 +325,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                         onClick={() => {
                           const newParams = [...(apiConfig.queryParams || [])];
                           newParams.splice(i, 1);
-                          onUpdate({ config: { ...apiConfig, queryParams: newParams } });
+                          const updatedConfig = { ...apiConfig, queryParams: newParams };
+                          onUpdate({ 
+                            config: { 
+                              ...updatedConfig, 
+                              url: updateUrlFromParams(newParams) 
+                            } 
+                          });
                         }}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -271,7 +343,13 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                     size="sm"
                     onClick={() => {
                       const newParams = [...(apiConfig.queryParams || []), { key: '', value: '', enabled: true }];
-                      onUpdate({ config: { ...apiConfig, queryParams: newParams } });
+                      const updatedConfig = { ...apiConfig, queryParams: newParams };
+                      onUpdate({ 
+                        config: { 
+                          ...updatedConfig, 
+                          url: updateUrlFromParams(newParams) 
+                        } 
+                      });
                     }}
                   >
                     <Plus className="h-4 w-4 mr-1" />
