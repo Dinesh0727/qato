@@ -32,13 +32,24 @@ export interface RedisStepConfig {
   database?: number;
 }
 
+export type ApiBodyType = 'none' | 'raw' | 'form-data' | 'x-www-form-urlencoded';
+
+export interface FormDataField {
+  key: string;
+  value: string;
+  type: 'text' | 'file';
+  enabled?: boolean;
+  contentType?: string; // For files: image/jpeg, application/pdf, etc.
+  filename?: string; // Custom filename for file uploads
+}
+
 export interface ApiStepConfig {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   url: string;
   headers?: Record<string, string>;
   queryParams?: Array<{ key: string; value: string; enabled?: boolean }>;
   bodyType?: ApiBodyType;
-  formData?: Array<{ key: string; value: string; type?: 'text' | 'file'; enabled?: boolean }>;
+  formData?: FormDataField[];
   urlEncodedData?: Array<{ key: string; value: string; enabled?: boolean }>;
   body?: string;
   extractVars?: Array<{ name: string; path: string; type?: 'string' | 'integer' | 'float' | 'boolean' }>;

@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
-import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig } from '@/types';
+import { TestStep, SqlStepConfig, RedisStepConfig, ApiStepConfig, ClickhouseStepConfig, FormDataField } from '@/types';
 import { ApiHeadersEditor } from './ApiHeadersEditor';
 
 interface StepCardProps {
@@ -112,7 +112,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
         );
 
       case 'redis':
-        const redisConfig = step.config as RedisStepConfig;
+        { const redisConfig = step.config as RedisStepConfig;
         return (
           <div className="space-y-3">
             <div>
@@ -139,7 +139,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               />
             </div>
           </div>
-        );
+        ); }
 
       case 'api':
         { 
@@ -405,70 +405,103 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
                 {/* Form Data */}
                 {apiConfig.bodyType === 'form-data' && (
                   <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground mb-2">
+                      For files: use classpath:path/to/file.ext or file:/absolute/path
+                    </div>
                     {(apiConfig.formData || []).map((field, i) => (
-                      <div key={i} className="flex gap-2 items-center">
-                        <Checkbox
-                          checked={field.enabled !== false}
-                          onCheckedChange={(checked) => {
-                            const newFormData = [...(apiConfig.formData || [])];
-                            newFormData[i] = { ...newFormData[i], enabled: checked as boolean };
-                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
-                          }}
-                        />
-                        <Select
-                          value={field.type || 'text'}
-                          onValueChange={(value: any) => {
-                            const newFormData = [...(apiConfig.formData || [])];
-                            newFormData[i] = { ...newFormData[i], type: value };
-                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
-                          }}
-                        >
-                          <SelectTrigger className="w-24 bg-muted border-border rounded-lg">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-muted border-border rounded-lg">
-                            <SelectItem value="text">Text</SelectItem>
-                            <SelectItem value="file">File</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          value={field.key}
-                          onChange={e => {
-                            const newFormData = [...(apiConfig.formData || [])];
-                            newFormData[i] = { ...newFormData[i], key: e.target.value };
-                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
-                          }}
-                          placeholder="Key"
-                          className="w-1/3 bg-muted border-border rounded-lg"
-                        />
-                        <Input
-                          value={field.value}
-                          onChange={e => {
-                            const newFormData = [...(apiConfig.formData || [])];
-                            newFormData[i] = { ...newFormData[i], value: e.target.value };
-                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
-                          }}
-                          placeholder={field.type === 'file' ? 'File path or ${varName}$' : 'Value or ${varName}$'}
-                          className="flex-1 bg-muted border-border rounded-lg"
-                        />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          onClick={() => {
-                            const newFormData = [...(apiConfig.formData || [])];
-                            newFormData.splice(i, 1);
-                            onUpdate({ config: { ...apiConfig, formData: newFormData } });
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      <div key={i} className="space-y-2 p-3 bg-muted/30 rounded-lg border border-border">
+                        <div className="flex gap-2 items-start">
+                          <Checkbox
+                            checked={field.enabled !== false}
+                            onCheckedChange={(checked) => {
+                              const newFormData = [...(apiConfig.formData || [])];
+                              newFormData[i] = { ...newFormData[i], enabled: checked as boolean };
+                              onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                            }}
+                            className="mt-2"
+                          />
+                          <Select
+                            value={field.type || 'text'}
+                            onValueChange={(value: any) => {
+                              const newFormData = [...(apiConfig.formData || [])];
+                              newFormData[i] = { ...newFormData[i], type: value };
+                              onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                            }}
+                          >
+                            <SelectTrigger className="w-24 bg-muted border-border rounded-lg">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="bg-muted border-border rounded-lg">
+                              <SelectItem value="text">Text</SelectItem>
+                              <SelectItem value="file">File</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <div className="flex-1 space-y-2">
+                            <Input
+                              value={field.key}
+                              onChange={e => {
+                                const newFormData = [...(apiConfig.formData || [])];
+                                newFormData[i] = { ...newFormData[i], key: e.target.value };
+                                onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                              }}
+                              placeholder="Field Name"
+                              className="bg-muted border-border rounded-lg"
+                            />
+                            <Input
+                              value={field.value}
+                              onChange={e => {
+                                const newFormData = [...(apiConfig.formData || [])];
+                                newFormData[i] = { ...newFormData[i], value: e.target.value };
+                                onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                              }}
+                              placeholder={field.type === 'file' ? 'classpath:data/file.pdf or ${varName}$' : 'Value or ${varName}$'}
+                              className="bg-muted border-border rounded-lg"
+                            />
+                            {field.type === 'file' && (
+                              <div className="flex gap-2">
+                                <Input
+                                  value={field.contentType || ''}
+                                  onChange={e => {
+                                    const newFormData = [...(apiConfig.formData || [])];
+                                    newFormData[i] = { ...newFormData[i], contentType: e.target.value };
+                                    onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                                  }}
+                                  placeholder="Content-Type (e.g., image/jpeg)"
+                                  className="flex-1 bg-muted border-border rounded-lg text-sm"
+                                />
+                                <Input
+                                  value={field.filename || ''}
+                                  onChange={e => {
+                                    const newFormData = [...(apiConfig.formData || [])];
+                                    newFormData[i] = { ...newFormData[i], filename: e.target.value };
+                                    onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                                  }}
+                                  placeholder="Filename (optional)"
+                                  className="flex-1 bg-muted border-border rounded-lg text-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            onClick={() => {
+                              const newFormData = [...(apiConfig.formData || [])];
+                              newFormData.splice(i, 1);
+                              onUpdate({ config: { ...apiConfig, formData: newFormData } });
+                            }}
+                            className="mt-1"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const newFormData = [...(apiConfig.formData || []), { key: '', value: '', type: 'text', enabled: true }];
+                        const newFormData: FormDataField[] = [...(apiConfig.formData || []), { key: '', value: '', type: 'text' as const, enabled: true }];
                         onUpdate({ config: { ...apiConfig, formData: newFormData } });
                       }}
                     >
