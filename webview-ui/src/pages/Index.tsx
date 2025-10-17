@@ -268,25 +268,38 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
             if (apiConfig.formData && apiConfig.formData.length > 0) {
               const enabledFields = apiConfig.formData.filter(f => f.enabled !== false && f.key);
 
-              // Set content-type for multipart
-              gherkin += `  And header Content-Type = 'multipart/form-data'\n`;
-
-              // Build multipart object
-              gherkin += `  * def formDataObj = {}\n`;
               enabledFields.forEach(field => {
                 const key = field.key;
                 const value = substituteVars(field.value);
 
                 if (field.type === 'file') {
-                  // For file uploads
-                  gherkin += `  * def fileContent = karate.read('${value}')\n`;
-                  gherkin += `  * formDataObj.${key} = { read: fileContent, filename: '${value.split('/').pop()}' }\n`;
+                  // Build file multipart configuration
+                  const fileConfig: string[] = [];
+                  fileConfig.push(`read: '${value}'`);
+                  
+                  // Add filename if specified, otherwise extract from path
+                  if (field.filename) {
+                    fileConfig.push(`filename: '${field.filename}'`);
+                  } else {
+                    // Extract filename from path (handles both classpath: and file: prefixes)
+                    const pathParts = value.replace(/^(classpath:|file:)/, '').split(/[/\\]/);
+                    const extractedFilename = pathParts[pathParts.length - 1];
+                    if (extractedFilename) {
+                      fileConfig.push(`filename: '${extractedFilename}'`);
+                    }
+                  }
+                  
+                  // Add content type if specified
+                  if (field.contentType) {
+                    fileConfig.push(`contentType: '${field.contentType}'`);
+                  }
+                  
+                  gherkin += `  And multipart file ${key} = { ${fileConfig.join(', ')} }\n`;
                 } else {
-                  // For text fields
-                  gherkin += `  * formDataObj.${key} = '${value}'\n`;
+                  // For text fields, use multipart field
+                  gherkin += `  And multipart field ${key} = '${value}'\n`;
                 }
               });
-              gherkin += `  And multipart fields formDataObj\n`;
             }
             break;
 
@@ -865,7 +878,7 @@ const Index = () => {
       }
 
       case 'templateUpdated': {
-        const { templateId, template } = message.payload as { templateId: string; template: any };
+        const { templateId, template } = message.payload as { templateId: string; template: unknown };
         templateManager.current.updateTemplate(templateId, template);
         break;
       }
