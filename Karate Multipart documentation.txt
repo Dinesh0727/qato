@@ -1,0 +1,434 @@
+This guide provides a comprehensive overview of implementing `multipart` file uploads in Karate.
+
+-----
+
+### \#\# 1. Core Concepts & Theory
+
+Multipart requests are used to send complex data, such as files and form fields, in a single HTTP request. They are the standard for file uploads in web applications.
+
+  * **Multipart Requests**: An HTTP request that combines one or more sets of data into a single body, separated by a unique **boundary**. This is essential when your payload is not a single, flat object, but a collection of different parts. Use them whenever you need to upload a file along with other data.
+  * **Key Components**:
+      * **Part**: Each piece of data in the request (e.g., a file, a form field).
+      * **Field**: A simple key-value pair, typically a text part.
+      * **Boundary**: A unique string that separates each part in the request body. Karate generates this automatically.
+      * **`Content-Disposition`**: A header within each part that provides metadata, such as the field name (`name`) and the original filename (`filename`).
+      * **`Content-Type`**: A header that specifies the media type of the part (e.g., `image/jpeg` for a file, `application/json` for a JSON object).
+  * **How Karate Handles It**: Karate abstracts the complexity. You don't need to manually build the request body or generate boundaries. You simply declare each part using keywords like `multipart file` or `multipart field`, and Karate assembles the correctly formatted `multipart/form-data` request.
+  * **`multipart/form-data` vs. Other Types**:
+      * **`application/json`**: Used for sending structured data (objects, arrays). Not suitable for binary file data.
+      * **`application/x-www-form-urlencoded`**: Used for sending simple key-value pairs from a web form. Inefficient for files as it requires URL-encoding everything.
+      * **`multipart/form-data`**: The only standard content type designed to handle mixed content, including binary files, efficiently.
+
+-----
+
+### \#\# 2. Basic Examples
+
+These examples assume a running API endpoint at `http://localhost:8080/upload`.
+
+#### **Use Case:** Simple single file upload
+
+Upload a single text file. The server is expected to receive the file and return a confirmation message.
+
+**Scenario:**
+
+```gherkin
+Feature: Basic File Uploads
+
+Background:
+  * url 'http://localhost:8080'
+
+Scenario: Upload a single text file
+  Given path '/upload'
+  # 'file' is the name of the form field the server expects.
+  # The value is a map defining the file to read.
+  And multipart file myFile = { read: 'classpath:data/test.txt', filename: 'test.txt', contentType: 'text/plain' }
+  When method post
+  Then status 200
+  And match response.message == 'File uploaded successfully: test.txt'
+```
+
+  * **`multipart file myFile = { ... }`**: This is the core command. `myFile` is the `name` attribute of the part.
+  * **`read: 'classpath:data/test.txt'`**: Reads the file `test.txt` from the project's resource folder (`src/test/resources/data`).
+  * **`filename: 'test.txt'`**: Sets the `filename` in the `Content-Disposition` header.
+  * **`contentType: 'text/plain'`**: Sets the `Content-Type` for this specific part.
+
+-----
+
+#### **Use Case:** Uploading a file with additional form fields
+
+Upload a file along with a user ID and a description.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload a file with form fields
+  Given path '/upload'
+  # Add simple key-value fields alongside the file
+  And multipart field userId = 'user123'
+  And multipart field description = 'This is a test file upload.'
+  And multipart file myFile = { read: 'classpath:data/test.txt', filename: 'test.txt', contentType: 'text/plain' }
+  When method post
+  Then status 200
+  And match response.userId == 'user123'
+  And match response.fileDetails.filename == 'test.txt'
+```
+
+  * **`multipart field userId = 'user123'`**: Adds a text-based part with `name="userId"` and value `"user123"`.
+
+-----
+
+#### **Use Case:** Multiple file uploads in one request
+
+Upload two different files in a single API call.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload multiple files
+  Given path '/upload/bulk'
+  # The server API must be designed to handle multiple files.
+  # Often, the 'name' attribute is the same for all files.
+  And multipart file file1 = { read: 'classpath:data/test.txt', filename: 'file1.txt', contentType: 'text/plain' }
+  And multipart file file2 = { read: 'classpath:data/image.png', filename: 'logo.png', contentType: 'image/png' }
+  When method post
+  Then status 200
+  And match response.filesUploaded == 2
+  And match response.filenames contains ['file1.txt', 'logo.png']
+```
+
+  * Multiple `multipart file` lines are used. Karate combines them into a single request with multiple file parts.
+
+-----
+
+#### **Use Case:** Text-only multipart request
+
+Submit a form with only text fields, using the `multipart/form-data` encoding.
+
+**Scenario:**
+
+```gherkin
+Scenario: Text-only multipart request
+  Given path '/submit/form'
+  And multipart field username = 'karate-user'
+  And multipart field email = 'user@example.com'
+  When method post
+  Then status 200
+  And match response.message == 'Form submitted for karate-user'
+```
+
+  * This is useful for testing endpoints that expect `multipart/form-data` but don't necessarily require a file.
+
+-----
+
+### \#\# 3. Advanced Use Cases
+
+#### **Use Case:** Setting custom headers for a specific part
+
+Add a custom header, like `X-Custom-Header`, to one part of the multipart request.
+
+**Scenario:**
+
+```gherkin
+Scenario: Custom headers for a single part
+  Given path '/upload'
+  # The 'headers' key allows specifying headers for this part only.
+  And multipart file myFile = { read: 'classpath:data/test.txt', filename: 'test.txt', contentType: 'text/plain', headers: { 'X-Custom-Header': 'MyValue' } }
+  When method post
+  Then status 200
+```
+
+  * The `headers` key inside the `multipart file` map allows for per-part header customization.
+
+-----
+
+#### **Use Case:** Handling different file types (Image, PDF, JSON)
+
+Demonstrates uploading various file formats by setting the correct `Content-Type`.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload different file types
+  * def fileToUpload =
+  """
+    {
+      "image": { "read": "classpath:data/image.png", "filename": "logo.png", "contentType": "image/png" },
+      "document": { "read": "classpath:data/document.pdf", "filename": "report.pdf", "contentType": "application/pdf" },
+      "data": { "read": "classpath:data/payload.json", "filename": "data.json", "contentType": "application/json" }
+    }
+  """
+  Given path '/upload/mixed'
+  And multipart file myImage = fileToUpload.image
+  And multipart file myDoc = fileToUpload.document
+  And multipart file myData = fileToUpload.data
+  When method post
+  Then status 200
+  And match response.uploadedTypes contains ['image/png', 'application/pdf', 'application/json']
+```
+
+  * Using a JSON object (`fileToUpload`) helps organize and reuse file definitions.
+
+-----
+
+#### **Use Case:** Reading files from classpath vs. filesystem
+
+Show the difference between project resources and absolute file paths.
+
+**Scenario:**
+
+```gherkin
+Scenario: Read from classpath vs filesystem
+  # 'classpath:' is preferred for portability.
+  # It reads from src/test/resources.
+  * def fileFromClasspath = { read: 'classpath:data/test.txt', filename: 'test.txt' }
+
+  # 'file:' reads from the absolute or relative path on the filesystem.
+  # This can be less portable across different machines.
+  * def fileFromSystem = { read: 'file:/path/to/your/files/another.txt', filename: 'another.txt' }
+
+  Given path '/upload'
+  And multipart file upload1 = fileFromClasspath
+  When method post
+  Then status 200
+
+  Given path '/upload'
+  And multipart file upload2 = fileFromSystem
+  When method post
+  Then status 200
+```
+
+-----
+
+#### **Use Case:** Using byte arrays for file content
+
+Upload content generated dynamically in the test, without reading from a file.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload a dynamic byte array
+  * def text = 'This is dynamic content'
+  # Convert the string to a byte array using Java interop
+  * def bytes = text.getBytes('UTF-8')
+
+  Given path '/upload'
+  # The 'value' key is used for raw content instead of 'read'.
+  And multipart file myFile = { value: bytes, filename: 'dynamic.txt', contentType: 'text/plain' }
+  When method post
+  Then status 200
+  And match response.message contains 'dynamic.txt'
+```
+
+  * `value: bytes`: Supplies the raw byte array directly as the part's content.
+
+-----
+
+### \#\# 4. Real-World Scenarios
+
+#### **Use Case:** Profile picture upload with user details
+
+A common scenario where a user uploads an avatar along with their profile information.
+
+**Scenario:**
+
+```gherkin
+Feature: User Profile Management
+
+Background:
+  * url 'http://localhost:8080'
+  * def user = { id: 'u456', name: 'John Doe' }
+
+Scenario: Upload a profile picture
+  Given path '/users/' + user.id + '/avatar'
+  And header Authorization = 'Bearer some-auth-token'
+  And multipart field name = user.name
+  And multipart file avatar = { read: 'classpath:images/avatar.jpg', contentType: 'image/jpeg' }
+  When method post
+  Then status 200
+  And match response.userId == user.id
+  And match response.avatarUrl != null
+```
+
+-----
+
+#### **Use Case:** Mixed content (file + JSON payload)
+
+Upload a file and a structured JSON object as two separate parts.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload a file with a JSON metadata part
+  * def metadata = { author: 'Karate', version: '1.0' }
+
+  Given path '/upload/with-metadata'
+  # Part 1: The JSON data
+  And multipart entity jsonData = { value: metadata, contentType: 'application/json' }
+  # Part 2: The actual file
+  And multipart file fileData = { read: 'classpath:data/document.pdf', contentType: 'application/pdf' }
+  When method post
+  Then status 200
+  And match response.metadata.author == 'Karate'
+  And match response.fileDetails.contentType == 'application/pdf'
+```
+
+  * `multipart entity`: A versatile keyword. Here, it automatically converts the `metadata` JSON object into a string and sets the `Content-Type` for that part.
+
+-----
+
+#### **Use Case:** Uploading and immediately verifying the content
+
+Chain a `POST` to upload with a `GET` to download/verify the file.
+
+**Scenario:**
+
+```gherkin
+Scenario: Upload a file and verify it was stored correctly
+  # Step 1: Upload the file
+  Given path '/upload'
+  And multipart file myFile = { read: 'classpath:data/test.txt', filename: 'verify.txt' }
+  When method post
+  Then status 200
+  And match response.fileId != null
+  * def fileId = response.fileId
+
+  # Step 2: Use the ID from the response to fetch the file
+  Given path '/files/' + fileId
+  When method get
+  Then status 200
+  And match header Content-Disposition contains 'filename="verify.txt"'
+  And match response == 'This is the content of test.txt.'
+```
+
+-----
+
+#### **Use Case:** Error handling (file too large)
+
+Test that the server correctly rejects a file that exceeds the size limit.
+
+**Scenario:**
+
+```gherkin
+Scenario: Attempt to upload a file that is too large
+  Given path '/upload'
+  # Assume 'large-file.zip' is a file known to be over the server's limit.
+  And multipart file myFile = { read: 'classpath:data/large-file.zip' }
+  When method post
+  # 413 Payload Too Large is the expected error status
+  Then status 413
+  And match response.error == 'File size exceeds the limit'
+```
+
+-----
+
+### \#\# 5. Syntax Variations
+
+Karate provides several flexible ways to define multipart requests.
+
+#### **Use Case:** Comparing `multipart file`, `field`, and `entity`
+
+  * **`multipart file`**: The specialized keyword for files. It automatically handles `read`, `filename`, and `Content-Disposition`.
+  * **`multipart field`**: For simple key-value string data.
+  * **`multipart entity`**: The most generic. Can be used for files, JSON, XML, or any string/byte array. You have full control over the `Content-Type`.
+
+**Scenario:**
+
+```gherkin
+Scenario: Different ways to define multipart parts
+  Given path '/upload/syntax'
+  # Approach 1: Standard file upload
+  And multipart file file1 = { read: 'classpath:data/test.txt' }
+
+  # Approach 2: Simple text field
+  And multipart field field1 = 'hello world'
+
+  # Approach 3: Sending JSON data using multipart entity
+  * def myJson = { "key": "value" }
+  And multipart entity entity1 = { value: myJson, contentType: 'application/json', name: 'metadata' }
+
+  # Approach 4: Sending a file using multipart entity (more verbose)
+  * def fileBytes = read('classpath:data/image.png')
+  And multipart entity entity2 = { value: fileBytes, name: 'image', filename: 'logo.png', contentType: 'image/png' }
+
+  When method post
+  Then status 200
+```
+
+  * **Key takeaway**: Use `multipart file` for files and `multipart field` for simple strings. Use `multipart entity` when you need to send complex objects like JSON or need fine-grained control over a part's `Content-Type` and headers.
+
+-----
+
+### \#\# 6. Integration Patterns
+
+#### **Use Case:** Data-driven testing with `Scenario Outline`
+
+Upload different files and verify unique responses for each.
+
+**Scenario:**
+
+```gherkin
+Feature: Data-Driven Uploads
+
+Background:
+  * url 'http://localhost:8080'
+
+Scenario Outline: Upload various file types and check server response
+  Given path '/upload/validate'
+  And multipart file file = { read: '<filePath>', contentType: '<contentType>' }
+  When method post
+  Then status 200
+  And match response.detectedType == '<expectedType>'
+
+  Examples:
+    | filePath                     | contentType        | expectedType |
+    | classpath:data/image.png     | image/png          | IMAGE        |
+    | classpath:data/document.pdf  | application/pdf    | DOCUMENT     |
+    | classpath:data/test.txt      | text/plain         | TEXT         |
+```
+
+-----
+
+### \#\# 7. Common Pitfalls & Solutions
+
+  * **Error: `FileNotFoundException`**
+      * **Problem**: The path provided in `read:` is incorrect.
+      * **Solution**: Double-check the path. Use `classpath:` for files in `src/test/resources`. Verify spelling and directory structure.
+  * **Problem: Incorrect `Content-Type`**
+      * **Problem**: Server rejects the file because the part's `Content-Type` is missing or wrong.
+      * **Solution**: Explicitly set the `contentType` in the `multipart file` map, e.g., `{ read: '...', contentType: 'image/jpeg' }`.
+  * **Debugging Multipart Requests**
+      * **Problem**: The request is failing, and you don't know why.
+      * **Solution**: Print the request before sending it to inspect the generated payload.
+    <!-- end list -->
+    ```gherkin
+    Given path '/upload'
+    And multipart file myFile = { read: 'classpath:data/test.txt' }
+    # This will print the full raw request, including boundaries and headers
+    And print request
+    When method post
+    ```
+  * **File Path Issues**
+      * **Problem**: Tests fail on different machines due to hardcoded absolute file paths (e.g., `C:\Users\...`).
+      * **Solution**: **Always use `classpath:`**. It makes your test suite portable and independent of the local file system structure.
+
+-----
+
+### \#\# 8. Best Practices
+
+  * **Organize Resources**: Keep test files (e.g., images, PDFs, JSON) in a dedicated folder within `src/test/resources` (e.g., `src/test/resources/testfiles`).
+  * **Use Reusable Features**: For complex upload logic that is used in many tests, create a dedicated `upload.feature` file. Other tests can `call` this feature with the necessary parameters.
+    ```gherkin
+    # in upload.feature
+    Scenario: Reusable file upload
+      * path '/upload'
+      * multipart file file = { read: filePath, contentType: fileType }
+      * method post
+
+    # in another test
+    * def result = call read('classpath:upload.feature') { filePath: 'classpath:data/image.png', fileType: 'image/png' }
+    ```
+  * **Manage Test Data**: Use small, representative files. Avoid committing large binary files to your version control system.
+  * **Comprehensive Assertions**: Don't just check for `status 200`.
+      * Validate the response body to ensure it contains expected information (e.g., a file ID, a URL).
+      * If possible, chain the test with a subsequent `GET` request to confirm the file is retrievable and its content is correct.
+  * **Performance**: For functional API testing, Karate's performance is excellent. For true load testing of file uploads, integrate Karate scripts with Gatling. See the [Karate Gatling documentation](https://github.com/karatelabs/karate/tree/master/karate-gatling).
