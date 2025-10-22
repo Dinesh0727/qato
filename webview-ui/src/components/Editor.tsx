@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
-import { Play, Plus, Database, Zap, Globe, Table, BookOpen, Settings } from 'lucide-react';
+import { Play, Plus, Database, Zap, Globe, Table, BookOpen, Settings, FileCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { TestCase, TestStep, ValidationConfig, FlowControlConfig, ExecutionLog, ValidationResult, StepTemplate } from '@/types';
+import { TestCase, TestStep, ValidationConfig, FlowControlConfig, ExecutionLog, ValidationResult, StepTemplate, ApiStepConfig } from '@/types';
 import { StepCard } from '@/components/StepCard';
 import { ValidationEditor } from '@/components/ValidationEditor';
 import { FlowControlSettings } from '@/components/FlowControlSettings';
@@ -11,6 +11,7 @@ import { StepTemplateModal } from '@/components/StepTemplateModal';
 import { SaveTemplateModal } from '@/components/SaveTemplateModal';
 import { TemplateManagementModal } from '@/components/TemplateManagementModal';
 import { TagEditor } from '@/components/TagEditor';
+import { CurlImportDialog } from '@/components/CurlImportDialog';
 import { StepTemplateManager } from '@/services/StepTemplateManager';
 import { useToast } from '@/hooks/use-toast';
 
@@ -42,6 +43,7 @@ export const Editor = ({
   const [showAddStep, setShowAddStep] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [showCurlImport, setShowCurlImport] = useState(false);
   const [selectedStepForTemplate, setSelectedStepForTemplate] = useState<TestStep | null>(null);
   const [selectedStepType, setSelectedStepType] = useState<'api' | 'sql' | 'redis' | 'clickhouse' | undefined>(undefined);
   const { toast } = useToast();
@@ -228,6 +230,32 @@ export const Editor = ({
     setShowTemplateModal(true);
   };
 
+  const handleCurlImport = (config: ApiStepConfig) => {
+    if (!testCase) return;
+
+    const newStep: TestStep = {
+      id: `step-${Date.now()}`,
+      name: `Imported API Step`,
+      type: 'api',
+      delayMs: 0,
+      order: testCase.steps.length,
+      config: config,
+      validations: [],
+    };
+
+    const updatedTestCase = {
+      ...testCase,
+      steps: [...testCase.steps, newStep]
+    };
+
+    onUpdateTestCase(updatedTestCase);
+    
+    toast({
+      title: "cURL Imported",
+      description: "API step has been created from your curl command.",
+    });
+  };
+
   const getDefaultFlowControlConfig = (): FlowControlConfig => {
     return testCase?.flowControlConfig || {
       id: `flow-control-${Date.now()}`,
@@ -309,6 +337,7 @@ export const Editor = ({
               onUpdate={(updates) => handleUpdateStep(step.id, updates)}
               onDelete={() => handleDeleteStep(step.id)}
               onSaveAsTemplate={handleSaveAsTemplate}
+              onImportCurl={step.type === 'api' ? () => setShowCurlImport(true) : undefined}
             >
               <ValidationEditor
                 stepId={step.id}
@@ -332,16 +361,23 @@ export const Editor = ({
                   <Plus className="h-4 w-4 mr-2" />
                   Add New Step
                 </Button>
-                <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Button
                     variant="outline"
                     onClick={() => handleShowTemplates()}
-                    className="w-full border-dashed border-primary/30 text-primary hover:text-primary hover:border-primary/50 transition-colors duration-200"
+                    className="border-dashed border-primary/30 text-primary hover:text-primary hover:border-primary/50 transition-colors duration-200"
                   >
                     <BookOpen className="h-4 w-4 mr-2" />
                     Use Template
                   </Button>
-                  {/* Manage Templates moved to Header */}
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCurlImport(true)}
+                    className="border-dashed border-green-500/30 text-green-600 hover:text-green-700 hover:border-green-500/50 transition-colors duration-200"
+                  >
+                    <FileCode className="h-4 w-4 mr-2" />
+                    Import cURL
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -418,6 +454,12 @@ export const Editor = ({
         step={selectedStepForTemplate}
         templateManager={templateManager}
         onTemplateSaved={handleTemplateSaved}
+      />
+
+      <CurlImportDialog
+        isOpen={showCurlImport}
+        onClose={() => setShowCurlImport(false)}
+        onImport={handleCurlImport}
       />
 
       {/* TemplateManagementModal is now mounted in the root page Header */}
