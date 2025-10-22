@@ -9,6 +9,7 @@ QATO provides a comprehensive set of features for QA testing orchestration with 
 ### Test Case Management
 - **Hierarchical Organization**: Organize test cases in a folder → collection → test case structure
 - **Multi-Step Test Cases**: Create complex test flows with steps interacting with multiple data sources
+- **Test Case Tagging**: Organize and categorize test cases with custom tags for better filtering and management
 - **Step Types Supported**:
   - **SQL**: Execute database queries with MySQL support
   - **Redis**: Execute Redis commands and operations
@@ -18,8 +19,14 @@ QATO provides a comprehensive set of features for QA testing orchestration with 
 ### Visual Test Builder
 - **Drag-and-Drop Interface**: Create and arrange test steps visually without writing code
 - **Real-time Preview**: Live Gherkin syntax generation from visual test configurations
+- **cURL Import**: Import API requests directly from cURL commands with automatic parsing of:
+  - HTTP methods (GET, POST, PUT, DELETE, PATCH)
+  - Headers and authentication tokens
+  - Request body (JSON, form-data, URL-encoded)
+  - Query parameters
+  - Multipart file uploads
 - **Variable Extraction**: Extract values from API responses to use in subsequent steps
-- **Dynamic Variables**: Support for variable substitution using `${variable}$` syntax across steps
+- **Dynamic Variables**: Support for variable substitution using `${variable}` syntax across steps
 - **Delay Configuration**: Configure delays between test steps for timing-sensitive tests
 
 ### Validation & Flow Control
@@ -31,13 +38,15 @@ QATO provides a comprehensive set of features for QA testing orchestration with 
 ### Execution & Results
 - **Real-time Execution**: Execute tests and monitor progress in real-time
 - **Detailed Results**: View step-by-step execution results with timing information
-- **Comprehensive Validation Reporting**: Detailed validation result reporting
+- **Comprehensive Validation Reporting**: Detailed validation result reporting with pass/fail status
 - **Smart Error Handling**: Configurable error detection and categorization
+- **Test Navigation**: Quick navigation between test cases with automatic result loading
 
 ### Configuration Management
 - **Multiple Database Types**: Support for MySQL, PostgreSQL, Redis, and ClickHouse
 - **Global, Folder & Collection Settings**: Hierarchical configuration management
-- **Step Templates**: Reusable step templates for common operations
+- **Step Templates**: Reusable step templates for common operations (API and database steps)
+- **Execution Context Storage**: Automatically save and restore test execution context
 - **Theme Support**: Light, dark, and auto theme options
 
 ![QATO Interface](images/qato-interface.png)
@@ -84,24 +93,44 @@ QATO provides the following commands that can be accessed through VS Code's comm
 
 ## Release Notes
 
-### 1.0.0
+### 0.0.1 (Initial Release)
 
-Initial release of QATO (QA Testing Orchestrator) with complete visual test creation and execution capabilities, including support for SQL, Redis, ClickHouse, and API testing with validation and flow control features.
+First public release of QATO (QA Testing Orchestrator) with comprehensive visual test creation and execution capabilities.
 
-### 1.0.1
+**Core Features:**
+- Visual test builder with drag-and-drop interface
+- Multi-step test cases with SQL, Redis, ClickHouse, and API support
+- Real-time Gherkin syntax generation
+- Hierarchical configuration management (global, folder, collection)
+- Step template system for reusable operations
+- Theme support (light, dark, auto)
 
-- Fixed issue with variable extraction in API response headers
-- Improved error handling during test execution
-- Added support for custom headers in API calls
-- Enhanced database connection stability
+**API Testing:**
+- Full HTTP method support (GET, POST, PUT, DELETE, PATCH)
+- **cURL Import**: Import API requests directly from cURL commands
+- Query parameter management with bi-directional sync
+- Multipart form-data with file upload support
+- URL-encoded form data
+- Custom headers and authentication
+- Variable extraction from responses
 
-### 1.1.0
+**Database Testing:**
+- MySQL, PostgreSQL, Redis, and ClickHouse support
+- Query execution with variable substitution
+- Result validation and extraction
 
-- Added step template management system
-- Implemented theme toggle functionality (light/dark/auto)
-- Introduced hierarchical configuration system (global, folder, collection)
-- Enhanced validation system with better type checking
-- Added support for form data in API requests
+**Validation & Flow Control:**
+- Type-aware validation (string, number, boolean, array, object)
+- JSON path support for precise validation
+- Custom error messages
+- Configurable flow control (stop on failure vs continue)
+
+**Additional Features:**
+- Test case tagging for organization
+- Execution context storage and restoration
+- Test navigation with automatic result loading
+- Comprehensive validation reporting
+- Real-time execution monitoring
 
 ## Working with QATO
 
@@ -115,13 +144,50 @@ Initial release of QATO (QA Testing Orchestrator) with complete visual test crea
 6. Configure validations and variable extractions as needed
 7. Run your test to verify the behavior
 
+### Importing API Requests from cURL
+
+QATO makes it easy to import existing API requests from cURL commands:
+
+1. Click the "Add Step" button and select "API"
+2. Click the "Import from cURL" button in the API step editor
+3. Paste your cURL command (supports multi-line commands with backslash continuations)
+4. Click "Parse cURL" to preview the extracted configuration
+5. Click "Import Step" to add the API step to your test case
+
+The cURL parser automatically extracts:
+- HTTP method and URL
+- All headers including authentication
+- Request body (raw JSON, form-data, URL-encoded)
+- Query parameters
+- File uploads in multipart requests
+
+**Example cURL commands supported:**
+```bash
+# Simple GET request
+curl 'https://api.example.com/users'
+
+# POST with JSON body
+curl -X POST 'https://api.example.com/users' \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer token123' \
+  --data-raw '{"name":"John","email":"john@example.com"}'
+
+# Multipart form with file upload
+curl -X POST 'https://api.example.com/upload' \
+  -F 'file=@/path/to/file.pdf' \
+  -F 'description=My document'
+```
+
 ### Best Practices
 
 - Organize your test cases in logical folder and collection structures
 - Use descriptive names for test cases and steps
+- Tag test cases for easy categorization and filtering
 - Implement appropriate validations for each test step's expected outcome
 - Use step templates for repetitive operations across multiple test cases
 - Leverage variable extraction to chain dependent operations
+- Import API requests from browser DevTools or Postman using cURL export
+- Configure query parameters separately for better maintainability
 
 ## For more information
 
