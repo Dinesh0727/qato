@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3, Save, Plus } from 'lucide-react';
+import { GripVertical, Trash2, Database, Zap, Globe, ChevronDown, ChevronRight, Clock, Edit3, Save, Plus, FileCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,9 +19,10 @@ interface StepCardProps {
   children?: React.ReactNode;
   defaultCollapsed?: boolean;
   onSaveAsTemplate?: (step: TestStep) => void;
+  onImportCurl?: () => void;
 }
 
-export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true, onSaveAsTemplate }: StepCardProps) => {
+export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCollapsed = true, onSaveAsTemplate, onImportCurl }: StepCardProps) => {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -83,7 +84,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
   const renderStepContent = () => {
     switch (step.type) {
       case 'sql':
-        const sqlConfig = step.config as SqlStepConfig;
+        { const sqlConfig = step.config as SqlStepConfig;
         return (
           <div className="space-y-3">
             <div>
@@ -109,7 +110,7 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               />
             </div>
           </div>
-        );
+        ); }
 
       case 'redis':
         { const redisConfig = step.config as RedisStepConfig;
@@ -149,6 +150,30 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
         if (!apiConfig.bodyType) {
           apiConfig.bodyType = 'raw';
         }
+
+        // Import from cURL helper
+        const renderCurlImportHelper = () => {
+          if (!onImportCurl) return null;
+          
+          return (
+            <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                  <FileCode className="h-4 w-4" />
+                  <span>Want to import from a cURL command?</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onImportCurl}
+                  className="border-blue-300 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                >
+                  Import cURL
+                </Button>
+              </div>
+            </div>
+          );
+        };
 
         const handleBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
           onUpdate({ config: { ...apiConfig, body: e.target.value } });
@@ -193,6 +218,8 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
 
         return (
           <div className="space-y-3">
+            {renderCurlImportHelper()}
+            
             {/* Method and URL */}
             <div className="flex gap-2">
               <Select
