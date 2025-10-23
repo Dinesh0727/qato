@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Folder, FileText, Plus, Menu, X, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { FolderSettingsDialog } from '@/components/FolderSettingsDialog';
 import { Folder as FolderType, TestCase as TestCaseType } from '@/types';
@@ -50,7 +51,7 @@ interface WorkspaceFolder {
 interface TestNavigatorProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  folders: FolderType[]; 
+  folders: FolderType[];
   workspaceFolders?: WorkspaceFolder[];
   selectedTestCase: TestCaseType | null;
   onSelectTestCase: (testCase: TestCaseType) => void;
@@ -77,7 +78,7 @@ export const TestNavigator = ({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(folders.map(f => f.id)));
   const [expandedCollections, setExpandedCollections] = useState<Set<string>>(new Set(folders.flatMap(f => f.collections.map(c => c.id))));
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -88,7 +89,7 @@ export const TestNavigator = ({
     open: false,
     title: '',
     description: '',
-    onConfirm: () => {}
+    onConfirm: () => { }
   });
 
   const toggleFolder = (folderId: string) => {
@@ -124,7 +125,7 @@ export const TestNavigator = ({
   // Filter folders and test cases based on search query
   const filteredFolders = useMemo(() => {
     if (!searchQuery.trim()) return folders;
-    
+
     return folders.map(folder => ({
       ...folder,
       collections: folder.collections.map(collection => ({
@@ -140,7 +141,7 @@ export const TestNavigator = ({
     return (
       <div className="w-12 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out h-screen">
         <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="m-2 text-muted-foreground hover:text-foreground transition-colors duration-200 h-6 w-6 p-0">
-          <Menu className="h-3 w-3"/>
+          <Menu className="h-3 w-3" />
         </Button>
       </div>
     );
@@ -150,9 +151,12 @@ export const TestNavigator = ({
     <div className="w-80 bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out h-screen">
       {/* Header */}
       <div className="px-3 py-2 border-b border-border flex items-center justify-between flex-shrink-0">
-        <h2 className="font-medium text-foreground text-sm">Test Navigator</h2>
+        <div>
+          <h2 className="font-medium text-foreground text-sm">Test Navigator</h2>
+          <p className="text-xs text-muted-foreground/70">Organize your test cases</p>
+        </div>
         <Button variant="ghost" size="sm" onClick={onToggleCollapse} className="text-muted-foreground hover:text-foreground transition-colors duration-200 h-6 w-6 p-0">
-          <X className="h-3 w-3"/>
+          <X className="h-3 w-3" />
         </Button>
       </div>
 
@@ -169,28 +173,53 @@ export const TestNavigator = ({
         </div>
       </div>
 
-      {/* Add Folder Button */}
+      {/* Add Folder Button - Always Visible */}
       <div className="px-2 pb-2 flex-shrink-0">
-        <Button variant="outline" size="sm" className="w-full h-7 text-xs" onClick={() => handleRequestInput({
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-8 text-xs font-medium bg-primary/5 hover:bg-primary/10 border-primary/20 hover:border-primary/30 transition-all"
+          onClick={() => handleRequestInput({
             type: 'addFolder',
             prompt: "Enter new folder name:"
-        })}>
-          <Plus className="h-3 w-3 mr-1" /> Add Folder
+          })}
+        >
+          <Plus className="h-4 w-4 mr-1.5" />
+          New Folder
         </Button>
       </div>
 
       {/* Tree View */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 min-h-0">
+        {folders.length === 0 && !searchQuery.trim() && (
+          <div className="text-center py-8 px-4">
+            <Folder className="h-12 w-12 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-foreground mb-1">No folders yet</p>
+            <p className="text-xs text-muted-foreground mb-4">Create your first folder to organize test cases</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-primary/5 hover:bg-primary/10 border-primary/20"
+              onClick={() => handleRequestInput({
+                type: 'addFolder',
+                prompt: "Enter new folder name:"
+              })}
+            >
+              <Plus className="h-3 w-3 mr-1" /> Create Folder
+            </Button>
+          </div>
+        )}
         {filteredFolders.map((folder) => (
           <div key={folder.id} className="mb-2">
             {/* Folder */}
-            <div className="flex items-center group hover:bg-accent rounded px-2 py-1 transition-colors duration-200">
+            <div className="flex items-center group hover:bg-accent rounded px-2 py-1.5 transition-colors duration-200">
               <Button variant="ghost" size="sm" onClick={() => toggleFolder(folder.id)} className="p-0 w-6 h-6 text-muted-foreground hover:text-foreground transition-colors duration-200">
-                {expandedFolders.has(folder.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200"/>) : (<ChevronRight className="h-3 w-3 transition-transform duration-200"/>)}
+                {expandedFolders.has(folder.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200" />) : (<ChevronRight className="h-3 w-3 transition-transform duration-200" />)}
               </Button>
-              <Folder className="h-4 w-4 text-blue-500 mx-2"/>
-              <span className="text-sm text-foreground flex-1">{folder.name}</span>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+              <Folder className="h-4 w-4 text-blue-500 mx-2" />
+              <span className="text-sm text-foreground flex-1 font-medium">{folder.name}</span>
+              <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4 mr-1">{folder.collections.length}</Badge>
+              <div className="flex items-center gap-1">
                 {workspaceFolders && onUpdateFolderConfig && (() => {
                   const workspaceFolder = workspaceFolders.find(wf => wf.id === folder.id);
                   if (workspaceFolder) {
@@ -205,18 +234,25 @@ export const TestNavigator = ({
                   }
                   return null;
                 })()}
-                <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
-                  type: 'addCollection',
-                  prompt: "Enter new collection name:",
-                  folderId: folder.id
-                })}>
-                  <Plus className="h-3 w-3"/>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="p-0 w-6 h-6 text-primary hover:text-primary hover:bg-primary/10"
+                  title="Add Collection"
+                  onClick={() => handleRequestInput({
+                    type: 'addCollection',
+                    prompt: "Enter new collection name:",
+                    folderId: folder.id
+                  })}
+                >
+                  <Plus className="h-3.5 w-3.5" />
                 </Button>
                 {onDeleteFolder && (
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                    title="Delete Folder"
                     onClick={(e) => {
                       e.stopPropagation();
                       const testCaseCount = folder.collections.reduce((acc, c) => acc + c.testCases.length, 0);
@@ -231,7 +267,7 @@ export const TestNavigator = ({
                       });
                     }}
                   >
-                    <Trash2 className="h-3 w-3"/>
+                    <Trash2 className="h-3 w-3" />
                   </Button>
                 )}
               </div>
@@ -239,27 +275,53 @@ export const TestNavigator = ({
 
             {/* Collections */}
             <div className={`ml-4 overflow-hidden transition-all duration-300 ease-in-out ${expandedFolders.has(folder.id) ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0'}`}>
+              {folder.collections.length === 0 && expandedFolders.has(folder.id) && (
+                <div className="text-center py-4 px-2">
+                  <FileText className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+                  <p className="text-xs text-muted-foreground mb-2">No collections in this folder</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs bg-primary/5 hover:bg-primary/10 border-primary/20"
+                    onClick={() => handleRequestInput({
+                      type: 'addCollection',
+                      prompt: "Enter new collection name:",
+                      folderId: folder.id
+                    })}
+                  >
+                    <Plus className="h-3 w-3 mr-1" /> Add Collection
+                  </Button>
+                </div>
+              )}
               {folder.collections.map((collection) => (
                 <div key={collection.id} className="mb-1">
-                  <div className="flex items-center group hover:bg-accent rounded px-2 py-1 transition-colors duration-200">
+                  <div className="flex items-center group hover:bg-accent rounded px-2 py-1.5 transition-colors duration-200">
                     <Button variant="ghost" size="sm" onClick={() => toggleCollection(collection.id)} className="p-0 w-6 h-6 text-muted-foreground hover:text-foreground transition-colors duration-200">
-                      {expandedCollections.has(collection.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200"/>) : (<ChevronRight className="h-3 w-3 transition-transform duration-200"/>)}
+                      {expandedCollections.has(collection.id) ? (<ChevronDown className="h-3 w-3 transition-transform duration-200" />) : (<ChevronRight className="h-3 w-3 transition-transform duration-200" />)}
                     </Button>
-                    <FileText className="h-4 w-4 text-green-500 mx-2"/>
+                    <FileText className="h-4 w-4 text-green-500 mx-2" />
                     <span className="text-sm text-foreground flex-1">{collection.name}</span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                      <Button variant="ghost" size="sm" className="p-0 w-6 h-6" onClick={() => handleRequestInput({
-                        type: 'addTestCase',
-                        prompt: "Enter new test case name:",
-                        collectionId: collection.id
-                      })}>
-                        <Plus className="h-3 w-3"/>
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4 mr-1">{collection.testCases.length}</Badge>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="p-0 w-6 h-6 text-primary hover:text-primary hover:bg-primary/10"
+                        title="Add Test Case"
+                        onClick={() => handleRequestInput({
+                          type: 'addTestCase',
+                          prompt: "Enter new test case name:",
+                          collectionId: collection.id
+                        })}
+                      >
+                        <Plus className="h-3.5 w-3.5" />
                       </Button>
                       {onDeleteCollection && (
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="p-0 w-6 h-6 text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                          title="Delete Collection"
                           onClick={(e) => {
                             e.stopPropagation();
                             setConfirmDialog({
@@ -273,7 +335,7 @@ export const TestNavigator = ({
                             });
                           }}
                         >
-                          <Trash2 className="h-3 w-3"/>
+                          <Trash2 className="h-3 w-3" />
                         </Button>
                       )}
                     </div>
@@ -281,16 +343,33 @@ export const TestNavigator = ({
 
                   {/* Test Cases */}
                   <div className={`ml-4 overflow-hidden transition-all duration-300 ease-in-out ${expandedCollections.has(collection.id) ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0'}`}>
+                    {collection.testCases.length === 0 && expandedCollections.has(collection.id) && (
+                      <div className="text-center py-3 px-2">
+                        <p className="text-xs text-muted-foreground mb-2">No test cases yet</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs bg-primary/5 hover:bg-primary/10 border-primary/20"
+                          onClick={() => handleRequestInput({
+                            type: 'addTestCase',
+                            prompt: "Enter new test case name:",
+                            collectionId: collection.id
+                          })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Test Case
+                        </Button>
+                      </div>
+                    )}
                     {collection.testCases.map((testCase) => (
                       <div key={testCase.id} className={`flex items-center group hover:bg-accent rounded px-2 py-1 cursor-pointer transition-all duration-200 ${selectedTestCase?.id === testCase.id ? 'bg-primary/10 border border-primary/30' : ''}`}>
-                        <div className="w-6"/>
-                        <div className="h-2 w-2 bg-orange-500 rounded-full mx-2"/>
+                        <div className="w-6" />
+                        <div className="h-2 w-2 bg-orange-500 rounded-full mx-2" />
                         <span className="text-sm text-foreground flex-1" onClick={() => onSelectTestCase(testCase)}>{testCase.name}</span>
                         {onDeleteTestCase && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="opacity-0 group-hover:opacity-100 p-0 w-6 h-6 transition-opacity duration-200 text-destructive hover:text-destructive hover:bg-destructive/10" 
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="opacity-0 group-hover:opacity-100 p-0 w-6 h-6 transition-opacity duration-200 text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={(e) => {
                               e.stopPropagation();
                               setConfirmDialog({
@@ -304,7 +383,7 @@ export const TestNavigator = ({
                               });
                             }}
                           >
-                            <Trash2 className="h-3 w-3"/>
+                            <Trash2 className="h-3 w-3" />
                           </Button>
                         )}
                       </div>
