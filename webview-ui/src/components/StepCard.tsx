@@ -287,6 +287,23 @@ export const StepCard = ({ step, index, onUpdate, onDelete, children, defaultCol
               </div>
             )}
 
+            {/* SSL Verification Toggle */}
+            <div className="flex items-center space-x-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+              <Checkbox
+                id={`ssl-toggle-${step.id}`}
+                checked={apiConfig.skipSslVerification || false}
+                onCheckedChange={(checked) => onUpdate({ 
+                  config: { ...apiConfig, skipSslVerification: checked as boolean } 
+                })}
+              />
+              <label htmlFor={`ssl-toggle-${step.id}`} className="text-sm cursor-pointer">
+                <span className="font-semibold text-yellow-800 dark:text-yellow-300">Skip SSL Certificate Verification</span>
+                <span className="block text-xs text-yellow-700 dark:text-yellow-400 mt-0.5">
+                  Bypass SSL verification for development/testing only
+                </span>
+              </label>
+            </div>
+
             <Tabs defaultValue="params" className="w-full">
               <TabsList className="bg-muted rounded-lg">
                 <TabsTrigger value="params" className="rounded-md">Params</TabsTrigger>

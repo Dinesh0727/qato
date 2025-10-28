@@ -1,4 +1,4 @@
-package com.qato.utils;
+package com.qato.qa_tool_orchaestrator.utils;
 
 import com.qato.qa_tool_orchaestrator.dto.DatabaseConfig;
 import com.qato.qa_tool_orchaestrator.service.ConfigurationService;

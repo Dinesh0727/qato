@@ -186,7 +186,7 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         }
 
         gherkin += `  * def testContext = ${JSON.stringify(testContext)}\n`;
-        gherkin += `  Given url 'http://localhost:8280/query-with-context'\n`;
+        gherkin += `  Given url 'http://localhost:8317/query-with-context'\n`;
         gherkin += `  And request { query: '#(query)', type: "${step.type}", context: '#(testContext)' }\n`;
         gherkin += `  When method post\n`;
         gherkin += `  Then status 200\n`;
@@ -249,6 +249,11 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         // Add headers
         if (apiConfig.headers && Object.keys(apiConfig.headers).length > 0) {
           gherkin += `  And headers ${JSON.stringify(apiConfig.headers)}\n`;
+        }
+
+        // Configure SSL verification if needed
+        if (apiConfig.skipSslVerification) {
+          gherkin += `  * configure ssl = { trustAll: true }\n`;
         }
 
         // Handle different body types

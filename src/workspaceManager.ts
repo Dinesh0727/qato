@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { 
+import {
   TestCase,
-  WorkspaceTree, 
-  WorkspaceFolder, 
-  WorkspaceCollection, 
+  WorkspaceTree,
+  WorkspaceFolder,
+  WorkspaceCollection,
   WorkspaceTestCase,
   FileSystemResult,
   GlobalConfig,
@@ -33,7 +33,7 @@ export class WorkspaceManager {
   async initializeWorkspace(rootUri: vscode.Uri): Promise<FileSystemResult<void>> {
     try {
       this.rootUri = rootUri;
-      
+
       // Create .qato directory for metadata (optional)
       const qatoDir = vscode.Uri.joinPath(rootUri, '.qato');
       try {
@@ -117,9 +117,9 @@ export class WorkspaceManager {
 
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to initialize workspace: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to initialize workspace: ${error.message}`
       };
     }
   }
@@ -145,7 +145,7 @@ export class WorkspaceManager {
 
       // Read all directories in the root (excluding .qato)
       const entries = await vscode.workspace.fs.readDirectory(rootUri);
-      
+
       for (const [name, type] of entries) {
         // Skip files and hidden directories
         if (type !== vscode.FileType.Directory || name.startsWith('.')) {
@@ -167,9 +167,9 @@ export class WorkspaceManager {
 
       return { success: true, data: workspaceTree };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to read workspace tree: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to read workspace tree: ${error.message}`
       };
     }
   }
@@ -194,7 +194,7 @@ export class WorkspaceManager {
 
       // Read all subdirectories (collections)
       const entries = await vscode.workspace.fs.readDirectory(folderUri);
-      
+
       for (const [name, type] of entries) {
         // Skip files and config files
         if (type !== vscode.FileType.Directory) {
@@ -241,7 +241,7 @@ export class WorkspaceManager {
 
       // Read all .test.json files
       const entries = await vscode.workspace.fs.readDirectory(collectionUri);
-      
+
       for (const [name, type] of entries) {
         // Only process .test.json files
         if (type !== vscode.FileType.File || !name.endsWith('.test.json')) {
@@ -276,12 +276,12 @@ export class WorkspaceManager {
     try {
       const fileData = await vscode.workspace.fs.readFile(testCaseUri);
       const testCase: TestCase = JSON.parse(fileData.toString());
-      
+
       // Ensure the test case has the correct collectionId
       testCase.collectionId = collectionId;
 
       const fileName = path.basename(testCaseUri.fsPath, '.test.json');
-      
+
       return {
         id: testCase.id,
         name: testCase.name,
@@ -302,12 +302,12 @@ export class WorkspaceManager {
     try {
       const fileData = await vscode.workspace.fs.readFile(uri);
       const testCase: TestCase = JSON.parse(fileData.toString());
-      
+
       return { success: true, data: testCase };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to load test case: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to load test case: ${error.message}`
       };
     }
   }
@@ -332,9 +332,9 @@ export class WorkspaceManager {
 
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to save test case: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to save test case: ${error.message}`
       };
     }
   }
@@ -362,9 +362,9 @@ export class WorkspaceManager {
 
       return { success: true, data: folderUri.fsPath };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to create folder: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to create folder: ${error.message}`
       };
     }
   }
@@ -387,9 +387,9 @@ export class WorkspaceManager {
 
       return { success: true, data: collectionUri.fsPath };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to create collection: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to create collection: ${error.message}`
       };
     }
   }
@@ -416,7 +416,7 @@ export class WorkspaceManager {
       if (debounceTimer) {
         clearTimeout(debounceTimer);
       }
-      
+
       // Debounce the update to avoid rapid successive calls
       debounceTimer = setTimeout(async () => {
         console.log('[WorkspaceManager] File system change detected, refreshing workspace tree...');
@@ -452,13 +452,13 @@ export class WorkspaceManager {
       const configContent = JSON.stringify(config, null, 2);
       await vscode.workspace.fs.writeFile(globalConfigPath, Buffer.from(configContent, 'utf8'));
       console.log('[WorkspaceManager] Global config saved successfully to:', globalConfigPath.fsPath);
-      
+
       return { success: true };
     } catch (error: any) {
       console.error('[WorkspaceManager] Failed to update global config:', error);
-      return { 
-        success: false, 
-        error: `Failed to update global config: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to update global config: ${error.message}`
       };
     }
   }
@@ -471,12 +471,12 @@ export class WorkspaceManager {
       const configPath = vscode.Uri.joinPath(folderUri, 'folder-config.json');
       const configContent = JSON.stringify(config, null, 2);
       await vscode.workspace.fs.writeFile(configPath, Buffer.from(configContent, 'utf8'));
-      
+
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: `Failed to update folder config: ${error.message}` 
+      return {
+        success: false,
+        error: `Failed to update folder config: ${error.message}`
       };
     }
   }

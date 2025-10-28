@@ -1,23 +1,30 @@
 package com.qato.qa_tool_orchaestrator.controller;
 
-import com.qato.qa_tool_orchaestrator.dto.QueryResponse;
-import com.qato.qa_tool_orchaestrator.dto.TestContext;
-import com.qato.qa_tool_orchaestrator.service.ConfigurationService;
-import com.qato.utils.DbUtils;
-import com.qato.utils.RedisUtils;
-import com.qato.utils.ClickhouseUtils;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.qato.qa_tool_orchaestrator.dto.FolderConfig;
+import com.qato.qa_tool_orchaestrator.dto.GlobalConfig;
+import com.qato.qa_tool_orchaestrator.dto.QueryResponse;
+import com.qato.qa_tool_orchaestrator.dto.TestContext;
+import com.qato.qa_tool_orchaestrator.service.ConfigurationService;
+import com.qato.qa_tool_orchaestrator.utils.ClickhouseUtils;
+import com.qato.qa_tool_orchaestrator.utils.DbUtils;
+import com.qato.qa_tool_orchaestrator.utils.RedisUtils;
 
 @RestController
 public class QueryController {
 
+    private static final Logger log = LoggerFactory.getLogger(QueryController.class);
     @Autowired
     private DbUtils dbUtils;
 
@@ -88,6 +95,7 @@ public class QueryController {
 
         // Parse test context
         TestContext testContext = parseTestContext(contextMap);
+        log.info("[DEBUG-BACKEND] TestContext : {}", testContext);
 
         // Load configuration for this test context
         configurationService.loadConfigurationForTest(testContext);
@@ -141,15 +149,31 @@ public class QueryController {
             // Parse global config if present
             Map<String, Object> globalConfigMap = (Map<String, Object>) contextMap.get("globalConfig");
             if (globalConfigMap != null) {
-                // Convert map to GlobalConfig object (simplified for now)
-                // In a real implementation, you'd use ObjectMapper or similar
-                System.out.println("[DEBUG:QueryController] Global config provided: " + globalConfigMap);
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    GlobalConfig globalConfig = mapper.convertValue(globalConfigMap, GlobalConfig.class);
+                    context.setGlobalConfig(globalConfig);
+                    System.out.println("[DEBUG:QueryController] Global config parsed successfully with " +
+                            (globalConfig.getDatabases() != null ? globalConfig.getDatabases().size() : 0)
+                            + " databases");
+                } catch (IllegalArgumentException e) {
+                    System.err.println("[DEBUG:QueryController] Failed to parse global config: " + e.getMessage());
+                }
             }
 
             // Parse folder config if present
             Map<String, Object> folderConfigMap = (Map<String, Object>) contextMap.get("folderConfig");
             if (folderConfigMap != null) {
-                System.out.println("[DEBUG:QueryController] Folder config provided: " + folderConfigMap);
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    FolderConfig folderConfig = mapper.convertValue(folderConfigMap, FolderConfig.class);
+                    context.setFolderConfig(folderConfig);
+                    System.out.println("[DEBUG:QueryController] Folder config parsed successfully with " +
+                            (folderConfig.getDatabases() != null ? folderConfig.getDatabases().size() : 0)
+                            + " databases");
+                } catch (IllegalArgumentException e) {
+                    System.err.println("[DEBUG:QueryController] Failed to parse folder config: " + e.getMessage());
+                }
             }
         }
 

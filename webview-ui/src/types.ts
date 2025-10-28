@@ -53,6 +53,7 @@ export interface ApiStepConfig {
   urlEncodedData?: Array<{ key: string; value: string; enabled?: boolean }>;
   body?: string;
   extractVars?: Array<{ name: string; path: string; type?: 'string' | 'integer' | 'float' | 'boolean' }>;
+  skipSslVerification?: boolean; // When true, disables SSL certificate verification for this step
 }
 
 export interface ClickhouseStepConfig {
