@@ -4,6 +4,23 @@ All notable changes to the "qato" extension will be documented in this file.
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [0.0.3] - 2025-10-28
+
+### Added
+
+- SSL verification bypass per API step via UI checkbox (development-focused)
+- Karate generation now supports `* configure ssl = { trustAll: true }` when enabled
+- Documentation: `SSL_BYPASS_USAGE.md` and `SSL_CERTIFICATE_MANAGEMENT_TODO.md`
+
+### Changed
+
+- Updated types to include `skipSslVerification` in `ApiStepConfig`
+- Enhanced API Step UI with clear warning banner for SSL bypass
+
+### Fixed
+
+- Resolved SSL handshake failures for self-signed/invalid cert endpoints by allowing opt-in bypass
+
 ## [0.0.1] - 2025-10-22
 
 ### Added
