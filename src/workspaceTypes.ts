@@ -41,6 +41,7 @@ export interface ApiStepConfig {
   headers: Record<string, string>;
   body?: string;
   extractVars?: Array<{ name: string; path: string; type?: 'string' | 'integer' | 'float' | 'boolean' }>;
+  skipSslVerification?: boolean; // When true, disables SSL certificate verification for this step
 }
 
 export interface ClickhouseStepConfig {

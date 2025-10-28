@@ -47,11 +47,28 @@ export const GlobalSettingsDialog = ({
 
   const handleGlobalDatabasesChange = useCallback((databases: DatabaseConfig[]) => {
     console.log('🔧 GlobalSettingsDialog: handleGlobalDatabasesChange called with:', databases);
+    
+    // Build defaultDatabaseConnections mapping based on saved databases
+    const defaultDatabaseConnections: { sql?: string; redis?: string; clickhouse?: string } = {};
+    
+    databases.forEach(db => {
+      if (db.type === 'mysql') {
+        defaultDatabaseConnections.sql = db.id;
+      } else if (db.type === 'redis') {
+        defaultDatabaseConnections.redis = db.id;
+      } else if (db.type === 'clickhouse') {
+        defaultDatabaseConnections.clickhouse = db.id;
+      }
+    });
+    
     const updatedConfig = {
       ...globalConfig,
-      databases
+      databases,
+      defaultDatabaseConnections
     };
+    
     console.log('🔧 GlobalSettingsDialog: calling onUpdateGlobalConfig with:', updatedConfig);
+    console.log('🔧 GlobalSettingsDialog: defaultDatabaseConnections:', defaultDatabaseConnections);
     onUpdateGlobalConfig(updatedConfig);
   }, [globalConfig, onUpdateGlobalConfig]);
 

@@ -160,6 +160,7 @@ export const SimpleDatabaseConfig = ({
     });
     
     console.log('💾 Updated databases to save:', updatedDatabases);
+    console.log('💾 Note: Parent component should also update defaultDatabaseConnections mapping');
     
     setTimeout(() => {
       console.log('💾 Calling onDatabasesChange with:', updatedDatabases);
@@ -234,7 +235,7 @@ export const SimpleDatabaseConfig = ({
     defaultValue: any;
     placeholder?: string;
     rows?: number;
-    [key: string]: any;
+    [key: string]: unknown;
   }) => {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     

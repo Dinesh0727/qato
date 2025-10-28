@@ -49,10 +49,26 @@ export const FolderSettingsDialog = ({
   const [open, setOpen] = useState(false);
 
   const handleFolderDatabasesChange = (databases: DatabaseConfig[]) => {
+    // Build defaultDatabaseConnections mapping based on saved databases
+    const defaultDatabaseConnections: { sql?: string; redis?: string; clickhouse?: string } = {};
+    
+    databases.forEach(db => {
+      if (db.type === 'mysql') {
+        defaultDatabaseConnections.sql = db.id;
+      } else if (db.type === 'redis') {
+        defaultDatabaseConnections.redis = db.id;
+      } else if (db.type === 'clickhouse') {
+        defaultDatabaseConnections.clickhouse = db.id;
+      }
+    });
+    
     const updatedConfig = {
       ...folderConfig,
-      databases
+      databases,
+      defaultDatabaseConnections
     };
+    
+    console.log('🔧 FolderSettingsDialog: Saving folder config with defaultDatabaseConnections:', defaultDatabaseConnections);
     onUpdateFolderConfig(folderPath, updatedConfig);
   };
 
