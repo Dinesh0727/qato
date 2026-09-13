@@ -82,7 +82,6 @@ QATO adds several settings through the `contributes.configuration` extension poi
 QATO provides the following commands that can be accessed through VS Code's command palette (Ctrl+Shift+P or Cmd+Shift+P):
 
 - `QATO: Show Panel` - Opens the QATO visual builder panel for creating and editing test cases
-- `QATO: Run Hardcoded Test` - Executes a predefined test for verification
 
 ## Known Issues
 

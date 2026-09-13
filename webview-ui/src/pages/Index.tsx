@@ -191,8 +191,17 @@ const generateGherkin = (testCase: TestCase, workspaceTree?: WorkspaceTree): str
         gherkin += `  When method post\n`;
         gherkin += `  Then status 200\n`;
         gherkin += `  * def dbResponse = response\n`;
-        gherkin += `  * def hasDbError = dbResponse.result && dbResponse.result[0] && dbResponse.result[0].error\n`;
-        gherkin += `  * if (hasDbError) karate.fail('DB Error: ' + dbResponse.result[0].error)\n`;
+        gherkin += `  * def hasDbError = dbResponse.result && dbResponse.result.length > 0 && dbResponse.result[0] && dbResponse.result[0].error\n`;
+        gherkin += `  * eval\n`;
+        gherkin += `    """\n`;
+        gherkin += `    if (hasDbError) {\n`;
+        gherkin += `      var dbErrorPayload = { stepName: '${sanitizedStepName}', type: 'db_error', result: { error: dbResponse.result[0].error }, executionTime: 0 };\n`;
+        gherkin += `      karate.log('---QATO_DB_ERROR_START---');\n`;
+        gherkin += `      karate.log(karate.toJson(dbErrorPayload));\n`;
+        gherkin += `      karate.log('---QATO_DB_ERROR_END---');\n`;
+        gherkin += `      karate.fail('DB Error: ' + dbResponse.result[0].error);\n`;
+        gherkin += `    }\n`;
+        gherkin += `    """\n`;
         break;
       }
 
@@ -763,7 +772,7 @@ const Index = () => {
 
       case 'fileSystemChanged': {
         const { workspaceTree } = message.payload as { workspaceTree: WorkspaceTree };
-        console.log('[DEBUG:Index.tsx] Received fileSystemChanged message, updating workspace tree:', JSON.stringify(workspaceTree, null, 2));
+        // console.log('[DEBUG:Index.tsx] Received fileSystemChanged message, updating workspace tree:', JSON.stringify(workspaceTree, null, 2));
         setWorkspaceTree(workspaceTree);
         setFolders(convertWorkspaceToFolders(workspaceTree));
         break;

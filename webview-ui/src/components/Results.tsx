@@ -350,19 +350,35 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                     
                     // Handle error cases for DB results
                     if (!parsedResult || typeof parsedResult !== 'object' || parsedResult.error) {
+                      const errorMessage = parsedResult?.error || (typeof dbRes.result === 'object' && dbRes.result && 'error' in dbRes.result ? String((dbRes.result as { error?: unknown }).error) : 'Unknown error');
                       return (
                         <Card key={index} className="bg-card border-destructive p-4">
-                          <p className="font-medium text-destructive">Error processing DB result for: {dbRes.stepName}</p>
-                          <pre className="bg-muted p-2 mt-2 rounded text-sm overflow-x-auto">
-                            {JSON.stringify(dbRes.result, null, 2)}
-                          </pre>
-                          {/* Display Karate error details if available */}
-                          {parsedResult && (parsedResult as unknown).karateError && (
-                            <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-                              <p className="font-medium text-red-700 dark:text-red-300 mb-2">Karate Error Details:</p>
-                              <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap overflow-x-auto">
-                                {(parsedResult as unknown).karateError}
-                              </pre>
+                          <Button
+                            variant="ghost"
+                            onClick={() => toggleDbStep(dbRes.stepName)}
+                            className="flex items-center gap-2 p-0 mb-2 text-foreground hover:text-foreground/80"
+                          >
+                            {expandedDbSteps.has(dbRes.stepName) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            <XCircle className="h-4 w-4 text-red-400" />
+                            <span className="font-medium text-destructive">DB Error: {dbRes.stepName} ({dbRes.type.toUpperCase()}) - {dbRes.executionTime ?? 'N/A'}ms</span>
+                          </Button>
+                          {expandedDbSteps.has(dbRes.stepName) && (
+                            <div className="mt-2">
+                              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+                                <p className="font-medium text-red-700 dark:text-red-300 mb-2">Database Error:</p>
+                                <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap overflow-x-auto">
+                                  {errorMessage || 'Unknown database error occurred'}
+                                </pre>
+                              </div>
+                              {/* Display full error details if available */}
+                              {parsedResult && typeof parsedResult === 'object' && 'karateError' in parsedResult && (
+                                <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+                                  <p className="font-medium text-red-700 dark:text-red-300 mb-2">Karate Error Details:</p>
+                                  <pre className="text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap overflow-x-auto">
+                                    {String(parsedResult.karateError)}
+                                  </pre>
+                                </div>
+                              )}
                             </div>
                           )}
                         </Card>
@@ -450,7 +466,7 @@ export const Results = ({ executionLogs, testResults, stepResults, validationRes
                             key={type}
                             size="sm"
                             variant={validationStepTypeFilter === type ? 'default' : 'outline'}
-                            onClick={() => setValidationStepTypeFilter(type as unknown)}
+                            onClick={() => setValidationStepTypeFilter(type as 'api' | 'sql' | 'clickhouse' | 'redis')}
                             className="text-xs"
                           >
                             {type.toUpperCase()} ({count})

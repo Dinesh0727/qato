@@ -9,6 +9,75 @@ import { WorkspaceMessage, WorkspaceTree } from './workspaceTypes';
 let dbAccessProcess: cp.ChildProcess | null = null;
 let workspaceManager: WorkspaceManager | null = null;
 
+/**
+ * Extract JSON from a log line that may contain Karate log prefixes
+ * Handles patterns like: "00:22:37.746 [main]  INFO  com.intuit.karate - {json}"
+ */
+function extractJsonFromLogLine(line: string): string {
+    // First, try to remove [print] prefix if present
+    const printPrefix = '[print] ';
+    let cleaned = line.indexOf(printPrefix) !== -1 
+        ? line.substring(line.indexOf(printPrefix) + printPrefix.length) 
+        : line;
+    
+    // Try to find JSON start markers
+    // Look for patterns like " - {" or " - [" or just "{" or "["
+    // First try to find " - {" or " - [" pattern (most common in Karate logs)
+    const dashPattern = cleaned.match(/ - (\{|\[)/);
+    if (dashPattern && dashPattern.index !== undefined) {
+        // Found " - {" or " - [", extract from the brace/bracket
+        const bracePos = dashPattern[0].indexOf('{');
+        const bracketPos = dashPattern[0].indexOf('[');
+        const jsonStart = bracePos !== -1
+            ? dashPattern.index + bracePos
+            : dashPattern.index + bracketPos;
+        return cleaned.substring(jsonStart).trim();
+    }
+    
+    // Fallback: look for just "{" or "["
+    const braceIndex = cleaned.indexOf('{');
+    const bracketIndex = cleaned.indexOf('[');
+    
+    if (braceIndex !== -1 && (bracketIndex === -1 || braceIndex < bracketIndex)) {
+        return cleaned.substring(braceIndex).trim();
+    } else if (bracketIndex !== -1) {
+        return cleaned.substring(bracketIndex).trim();
+    }
+    
+    // If no pattern found, return the cleaned line as-is
+    return cleaned.trim();
+}
+
+/**
+ * Extract and combine JSON from multiple log lines
+ * Handles multi-line JSON that may be split across log entries
+ */
+function extractJsonFromLogLines(lines: string[]): string {
+    // First, try to extract JSON from each line and combine
+    const extractedParts = lines.map(extractJsonFromLogLine).filter(part => part.length > 0);
+    
+    if (extractedParts.length === 0) {
+        return '';
+    }
+    
+    // Join the parts - they should form valid JSON
+    let combined = extractedParts.join('\n').trim();
+    
+    // If the combined string doesn't start with { or [, try to find the first JSON object/array
+    if (!combined.startsWith('{') && !combined.startsWith('[')) {
+        const firstBrace = combined.indexOf('{');
+        const firstBracket = combined.indexOf('[');
+        
+        if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+            combined = combined.substring(firstBrace);
+        } else if (firstBracket !== -1) {
+            combined = combined.substring(firstBracket);
+        }
+    }
+    
+    return combined;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('[DEBUG:extension.ts] Activating extension.');
     
@@ -605,28 +674,33 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
         let captureType = '';
 
         for (const line of lines) {
-            if (line.includes('---QATO_RESULT_START---') || line.includes('---QATO_VALIDATION_START---')) {
+            if (line.includes('---QATO_RESULT_START---') || line.includes('---QATO_VALIDATION_START---') || line.includes('---QATO_DB_ERROR_START---')) {
                 capturing = true;
                 contentBlock = '';
-                captureType = line.includes('VALIDATION') ? 'validation' : 'result';
+                if (line.includes('VALIDATION')) {
+                    captureType = 'validation';
+                } else if (line.includes('DB_ERROR')) {
+                    captureType = 'db_error';
+                } else {
+                    captureType = 'result';
+                }
                 continue;
             }
 
-            if (line.includes('---QATO_RESULT_END---') || line.includes('---QATO_VALIDATION_END---')) {
+            if (line.includes('---QATO_RESULT_END---') || line.includes('---QATO_VALIDATION_END---') || line.includes('---QATO_DB_ERROR_END---')) {
                 if (capturing) {
                     capturing = false;
-                    const cleanedLines = contentBlock.split('\n').map(l => {
-                        const printPrefix = '[print] ';
-                        const startIndex = l.indexOf(printPrefix);
-                        return startIndex !== -1 ? l.substring(startIndex + printPrefix.length) : l;
-                    });
-                    const jsonBlob = cleanedLines.join('\n').trim();
+                    const contentLines = contentBlock.split('\n').filter(l => l.trim().length > 0);
+                    const jsonBlob = extractJsonFromLogLines(contentLines);
 
                     try {
                         if (jsonBlob) {
                             const parsedObject = JSON.parse(jsonBlob);
                             if (captureType === 'validation') {
                                 validationResults.push(parsedObject);
+                            } else if (captureType === 'db_error') {
+                                // DB errors go to parsedResults with type 'db_error'
+                                parsedResults.push(parsedObject);
                             } else {
                                 parsedResults.push(parsedObject);
                             }
@@ -634,12 +708,36 @@ async function runGeneratedKarateTest(featureFileContent: string, context: vscod
                     } catch (e: any) {
                         console.error(`[DEBUG:extension.ts] Failed to parse ${captureType} JSON blob from stdout:`, e.message);
                         console.error('[DEBUG:extension.ts] Faulty JSON blob:', jsonBlob);
+                        console.error('[DEBUG:extension.ts] Raw content block:', contentBlock);
+                        
+                        // Try to extract JSON one more time with a more aggressive approach
+                        let fallbackJson = '';
+                        try {
+                            // Look for JSON object in the raw content
+                            const jsonMatch = contentBlock.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                fallbackJson = jsonMatch[0];
+                                const parsedObject = JSON.parse(fallbackJson);
+                                if (captureType === 'validation') {
+                                    validationResults.push(parsedObject);
+                                } else if (captureType === 'db_error') {
+                                    parsedResults.push(parsedObject);
+                                } else {
+                                    parsedResults.push(parsedObject);
+                                }
+                                console.log(`[DEBUG:extension.ts] Successfully parsed ${captureType} using fallback extraction`);
+                                continue;
+                            }
+                        } catch (fallbackError: any) {
+                            console.error(`[DEBUG:extension.ts] Fallback extraction also failed:`, fallbackError.message);
+                        }
+                        
                         const errorObject = {
                             stepName: 'Unknown Step (Parse Error)',
                             type: 'error',
                             result: {
                                 error: `Failed to parse ${captureType} from test log.`,
-                                raw: jsonBlob
+                                raw: jsonBlob || contentBlock
                             }
                         };
                         if (captureType === 'validation') {
